@@ -8,10 +8,14 @@ RANLIB = ranlib
 CFLAGS = -Wall -O2
 CXXFLAGS = -Wall -O2 -std=c++11
 NVCCFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
-#LDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11 --cudart shared
-LDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
-LD = nvcc
-INCDIRS = -I../enigma-cuda-lib -I/usr/local/cuda-8.0/include
+NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
+NVLD = nvcc
+LDFLAGS = -Wall -O2 -std=c++11
+LD = g++-5
+INCDIRS = -I../enigma-cuda-lib
+CUDAINCDIRS = -I/usr/local/cuda-8.0/include
+CLPPINCDIRS = -I../clpp
+OPENCLLIBDIR = -L/opt/amdgpu-pro/lib64
 
 LIB_SRCS = \
 ../enigma-cuda-lib/cuda_code.cu \
@@ -19,6 +23,7 @@ LIB_SRCS = \
 ../enigma-cuda-lib/iterator.cpp \
 ../enigma-cuda-lib/key.cpp \
 ../enigma-cuda-lib/ngrams.cpp \
+../enigma-cuda-lib/opencl_code.cpp \
 ../enigma-cuda-lib/plugboard.cpp \
 ../enigma-cuda-lib/runner.cpp \
 ../enigma-cuda-lib/segmenter.cpp \
@@ -31,15 +36,23 @@ PROG_SRCS = ../enigma-cuda/enigma-cuda.cpp
 
 ALL_SRCS = $(LIB_SRCS) $(PROG_SRCS)
 
-all: enigma-cuda
+all: enigma-cuda enigma-opencl
 
 libenigma-cuda.a: cuda_code.o ini_file.o iterator.o key.o ngrams.o plugboard.o \
 		runner.o segmenter.o settings.o util.o wiring.o
 	$(AR) cr $@ $^
 	$(RANLIB) $@
 
+libenigma-opencl.a: ini_file.o iterator.o key.o ngrams.o opencl_code.o plugboard.o \
+		runner.o segmenter.o settings.o util.o wiring.o opencl_program_data.o
+	$(AR) cr $@ $^
+	$(RANLIB) $@
+
 enigma-cuda: enigma-cuda.o libenigma-cuda.a
-	$(LD) $(LDFLAGS) -o $@ $^
+	$(NVLD) $(NVLDFLAGS) -o $@ $^
+
+enigma-opencl: enigma-cuda.o libenigma-opencl.a
+	$(LD) $(LDFLAGS) -o $@ $^ $(OPENCLLIBDIR) -lOpenCL -pthread
 
 %.o: ../enigma-cuda/%.cpp
 	$(CXX) $(CXXFLAGS) $(INCDIRS) -c -o $@ $<
@@ -48,10 +61,11 @@ enigma-cuda: enigma-cuda.o libenigma-cuda.a
 	$(CXX) $(CXXFLAGS) $(INCDIRS) -c -o $@ $<
 
 %.o: ../enigma-cuda-lib/%.cu
-	$(NVCC) $(NVCCFLAGS) $(INCDIRS) -c -o $@ $<
+	$(NVCC) $(NVCCFLAGS) $(CUDAINCDIRS) $(INCDIRS) -c -o $@ $<
 
 make.deps: $(ALL_SRCS)
-	$(NVCC) $(NVCCFLAGS) $(INCDIRS) -x c++ -M $(ALL_SRCS) | sed -e "s/^\\(.*:.*\\)$$/\\1/" > make.deps
+	$(CXX) $(NVCCFLAGS) $(INCDIRS) $(CUDAINCDIRS) $(CLPPINCDIRS) -x c++ -M $(ALL_SRCS) \
+	| sed -e "s/^\\(.*:.*\\)$$/\\1/" > make.deps
 
 enigma-cuda.o: ../enigma-cuda/enigma-cuda.cpp
 
@@ -59,6 +73,8 @@ cuda_code.o: ../enigma-cuda-lib/cuda_code.cu
 ini_file.o: ../enigma-cuda-lib/ini_file.cpp
 iterator.o: ../enigma-cuda-lib/iterator.cpp
 key.o: ../enigma-cuda-lib/key.cpp
+opencl_code.o: ../enigma-cuda-lib/opencl_code.cpp
+	$(CXX) $(CXXFLAGS) $(INCDIRS) $(CLPPINCDIRS) -c -o $@ $<
 ngrams.o: ../enigma-cuda-lib/ngrams.cpp
 plugboard.o: ../enigma-cuda-lib/plugboard.cpp
 runner.o: ../enigma-cuda-lib/runner.cpp
@@ -68,9 +84,16 @@ settings.o: ../enigma-cuda-lib/settings.cpp
 util.o: ../enigma-cuda-lib/util.cpp
 wiring.o: ../enigma-cuda-lib/wiring.cpp
 
+opencl_program_data.c: ../enigma-cuda-lib/opencl_program.cl
+	xxd -i $< $@
+
+opencl_program_data.o: opencl_program_data.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 clean:
 	rm -f make.deps
-	rm -f enigma-cuda *.o
-	rm -f libenigma-cuda.a
+	rm -f enigma-cuda enigma-opencl *.o
+	rm -f libenigma-cuda.a libenigma-opencl.a
+	rm -f opencl_program_data.c
 
 include make.deps
