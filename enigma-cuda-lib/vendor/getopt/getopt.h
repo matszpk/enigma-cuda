@@ -61,11 +61,14 @@
 #define __GETOPT_H__
 
 /* All the headers include this file. */
+#ifdef _WINDOWS
 #include <crtdefs.h>
+#endif
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h>
 #include <stdio.h>
 
 #ifdef __cplusplus
@@ -102,10 +105,14 @@ char    *optarg;		/* argument associated with option */
 #define	BADARG		((*options == ':') ? (int)':' : (int)'?')
 #define	INORDER 	(int)1
 
+#ifdef __linux__
+extern const char *__progname;
+#else
 #ifndef __CYGWIN__
 #define __progname __argv[0]
 #else
 extern char __declspec(dllimport) *__progname;
+#endif
 #endif
 
 #ifdef __CYGWIN__

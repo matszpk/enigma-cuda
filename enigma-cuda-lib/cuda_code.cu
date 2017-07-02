@@ -19,13 +19,13 @@
 #include "iterator.h"
 
 
-__constant__ int8_t d_ciphertext[MAX_MESSAGE_LENGTH];
+/*__constant__ int8_t d_ciphertext[MAX_MESSAGE_LENGTH];
 __constant__ Wiring d_wiring;
-__constant__ Key d_key;
-__constant__ NGRAM_DATA_TYPE d_unigrams[ALPSIZE];
+__constant__ Key d_key;*/
+//__constant__ NGRAM_DATA_TYPE d_unigrams[ALPSIZE];
 __constant__ NGRAM_DATA_TYPE d_bigrams[ALPSIZE][ALPSIZE];
-__constant__ int8_t d_order[ALPSIZE];
-__constant__ int8_t d_plugs[ALPSIZE];
+/*__constant__ int8_t d_order[ALPSIZE];
+__constant__ int8_t d_plugs[ALPSIZE];*/
 __constant__ bool d_fixed[ALPSIZE];
 Result * d_temp;
 

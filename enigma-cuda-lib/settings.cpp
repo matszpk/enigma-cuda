@@ -3,6 +3,7 @@
 /* file, You can obtain one at http ://mozilla.org/MPL/2.0/.           */
 /* Copyright (c) 2017 Alex Shovkoplyas VE3NEA                          */
 
+#include <stdexcept>
 #include <string.h>
 #include <iostream>
 #include <fstream>

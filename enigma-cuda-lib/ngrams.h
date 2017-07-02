@@ -24,7 +24,7 @@ public:
 class Bigrams
 {
 public:
-    NGRAM_DATA_TYPE data[ALPSIZE][ALPSIZE] = { 0 };
+    NGRAM_DATA_TYPE data[ALPSIZE][ALPSIZE] = { { 0 } };
     int pitch = ALPSIZE * sizeof(NGRAM_DATA_TYPE);
     void LoadFromFile(const string& file_name);
     int ScoreText(const string & text);
@@ -33,7 +33,7 @@ public:
 class Trigrams
 {
 public:
-    NGRAM_DATA_TYPE data[ALPSIZE][ALPSIZE][ALPSIZE] = { 0 };
+    NGRAM_DATA_TYPE data[ALPSIZE][ALPSIZE][ALPSIZE] = { { { 0 } } };
     int pitch = ALPSIZE * sizeof(NGRAM_DATA_TYPE);
     void LoadFromFile(const string& file_name);
     int ScoreText(const string & text);

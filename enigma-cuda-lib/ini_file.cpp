@@ -37,7 +37,7 @@ void IniFile::ReadFromFile(const string & file_name)
   }
 }
 
-string IniFile::ReadString(const string & section, const string & key, const string & default)
+string IniFile::ReadString(const string & section, const string & key, const string & _default)
 {
   return string();
 }

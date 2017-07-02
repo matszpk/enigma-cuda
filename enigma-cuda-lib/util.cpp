@@ -3,12 +3,18 @@
 /* file, You can obtain one at http ://mozilla.org/MPL/2.0/.           */
 /* Copyright (c) 2017 Alex Shovkoplyas VE3NEA                          */
 
+#include <stdexcept>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <iostream>
 #include <iomanip>
+#ifndef _WINDOWS
+#include <dirent.h>
+#endif
+#ifdef _WINDOWS
 #include <Windows.h>
+#endif
 #include <ctime>
 #include "util.h"
 
@@ -86,28 +92,49 @@ string LettersAndSpacesFromText(const string & text)
 
 string GetAbsolutePath(const string & file_name)
 {
+#ifndef _WINDOWS
+        char* out = realpath(file_name.c_str(), NULL);
+        string outstr;
+        try {
+        outstr = out;
+        } catch(...)
+        { free(out); throw; }
+        free(out);
+        return outstr;
+#else
 	char buf[256];
 	char* lppPart;
-
 	GetFullPathNameA((char*)file_name.c_str(),
 		256, &buf[0], &lppPart); (file_name);
 	return buf;
+#endif
 }
 
+extern const char *__progname;
 string GetExeDir()
 {
+#ifndef _WINDOWS
+    string result = __progname;
+    result = result.substr(0, result.find_last_of("/") + 1);
+    return result;
+#else
   char buf[1024] = { 0 };
   DWORD ret = GetModuleFileNameA(NULL, buf, sizeof(buf));
   string result = buf;
   result = result.substr(0, result.find_last_of("\\/") + 1);
   return result;
+#endif
 }
 
 string TimeString()
 {
   time_t t = std::time(nullptr);
   tm tt;
+#ifndef _WINDOWS
+  localtime_r(&t, &tt);
+#else
   localtime_s(&tt, &t);
+#endif
 
   std::ostringstream os;
   os << std::put_time(&tt, "%Y-%m-%d %H:%M:%S");
@@ -146,6 +173,15 @@ string UpperCase(const string & text)
 
 std::vector<string> ListFilesInDirectory(const string & directory)
 {
+#ifndef _WINDOWS
+    DIR* dir = opendir(directory.c_str());
+    std::vector<string> result;
+    struct dirent* dent;
+    while ((dent = readdir(dir))!=NULL)
+        result.push_back(dent->d_name);
+    closedir(dir);
+    return result;
+#else
   WIN32_FIND_DATAA FindData;
   std::vector<string> result;
 
@@ -159,10 +195,12 @@ std::vector<string> ListFilesInDirectory(const string & directory)
   FindClose(hFind);
 
   return result;
+#endif
 }
 
 void TextToClipboard(const std::string & text)
 {
+#ifdef _WINDOWS
   OpenClipboard(GetDesktopWindow());
   EmptyClipboard();
   HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
@@ -172,6 +210,7 @@ void TextToClipboard(const std::string & text)
   SetClipboardData(CF_TEXT, h);
   CloseClipboard();
   GlobalFree(h);
+#endif
 }
 
 bool FileExists(const string & file_name) 

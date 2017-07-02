@@ -14,5 +14,5 @@ public:
   std::map<string, Entries> sections;
 
   IniFile(const string & file_name) { ReadFromFile(file_name); }
-  string ReadString(const string & section, const string & key, const string & default);
+  string ReadString(const string & section, const string & key, const string & _default);
 };
