@@ -140,8 +140,6 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   ClimbKernel = clpp::Kernel(oclProgram, "ClimbKernel");
   FindBestResultKernel = clpp::Kernel(oclProgram, "FindBestResultKernel");
   
-  GenerateScramblerKernel.setArgs(d_wiringBuffer, d_keyBuffer, cl_uint(0), cl_uint(0));
-  
   GenerateScramblerKernelWGSize = GenerateScramblerKernel.getWorkGroupSize(oclDevice);
   GenerateScramblerKernelWGSize = std::min(GenerateScramblerKernelWGSize, size_t(64));
   thBlockShift = 1;
@@ -150,6 +148,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
     GenerateScramblerKernelWGSize = 32;
     thBlockShift = 0;
   }
+  GenerateScramblerKernel.setArg(2, cl_uint(thBlockShift));
     
   ClimbKernelWGSize = ClimbKernel.getWorkGroupSize(oclDevice);
   FindBestResultKernelWGSize = FindBestResultKernel.getWorkGroupSize(oclDevice);
@@ -164,6 +163,8 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
                     ALPSIZE*sizeof(NGRAM_DATA_TYPE));
   d_bigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
                     ALPSIZE*ALPSIZE*sizeof(NGRAM_DATA_TYPE));
+  
+  GenerateScramblerKernel.setArgs(d_wiringBuffer, d_keyBuffer);
   
   ClimbKernel.setArgs(d_wiringBuffer, d_keyBuffer);
   ClimbKernel.setArg(7, d_unigramsBuffer);
@@ -256,9 +257,9 @@ void InitializeArrays(const string cipher_string, int turnover_modes,
   //d_wiring
   SetUpScramblerMemory();
   //allow_turnover
-  ClimbKernel.setArg(14, cl_uint(turnover_modes));
+  ClimbKernel.setArg(14, cl_int(turnover_modes));
   //use unigrams
-  ClimbKernel.setArg(15, cl_uint(score_kinds));
+  ClimbKernel.setArg(15, cl_int(score_kinds));
 
   //d_results
   int count = (int)pow(ALPSIZE, digits);

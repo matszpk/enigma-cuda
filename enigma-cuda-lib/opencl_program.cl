@@ -619,8 +619,6 @@ inline void SelectHigherScoreLocal(private Result* a, const local Result* b)
   }
 }
 
-
-
 kernel void FindBestResultKernel(const global Result* g_idata,
             global Result* g_odata, uint count)
 {
