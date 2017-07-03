@@ -376,8 +376,8 @@ void BiScore(local Block * block, const local int8_t* scrambling_table,
   //or because their index is computed explicitly?
   if (lid < (block->count - 1))
     block->score_buf[lid] = 
-      d_bigrams[block->plain_text[lid] +
-               block->plain_text[lid + 1]*ALPSIZE];
+      d_bigrams[block->plain_text[lid]*ALPSIZE +
+               block->plain_text[lid + 1]];
   barrier(CLK_LOCAL_MEM_FENCE);
 
   Sum(block->count - 1, block->score_buf, &block->score, lid);
