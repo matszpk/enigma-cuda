@@ -62,7 +62,7 @@ int8_t mod26(const int16_t x)
 void SetUpScramblerMemory()
 {
   oclCmdQueue.writeBuffer(d_wiringBuffer, 0, sizeof(Wiring), &wiring);
-  size_t scramblerDataPitch = (28 + 15) & ~size_t(16);
+  scramblerDataPitch = (28 + 15) & ~size_t(16);
   scramblerDataBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE,
                   scramblerDataPitch*ALPSIZE_TO3);
   GenerateScramblerKernel.setArg(3, cl_uint(scramblerDataPitch));
@@ -272,7 +272,9 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
   int block_size = std::max(int(ClimbKernelWGSize), cipher_length);
   int shared_scrambler_size = ((cipher_length + 32) & ~31) * 28;
   ClimbKernel.setArg(16, clpp::Local(shared_scrambler_size));
-  oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, grid_size*block_size, block_size).wait();
+  clpp::Size3 workSize(grid_size*block_size, 1, 1);
+  clpp::Size3 localSize(block_size, 1, 1);
+  oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, workSize, localSize).wait();
   return GetBestResult(ALPSIZE_TO3);
 }
 
