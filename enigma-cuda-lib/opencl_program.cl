@@ -627,7 +627,8 @@ kernel void FindBestResultKernel(const global Result* g_idata,
   local Result sdata[REDUCE_MAX_THREADS];
   unsigned int tid = get_local_id(0);
   unsigned int gid = get_group_id(0);
-  unsigned int i = gid*(gid<<1) + tid;
+  unsigned int lsize = get_local_size(0);
+  unsigned int i = gid*(lsize<<1) + tid;
   Result best_pair;
   if (i < count)
   {
@@ -636,12 +637,12 @@ kernel void FindBestResultKernel(const global Result* g_idata,
   }
   else best_pair.score = 0;
   
-  if (i + gid < count) SelectHigherScore(&best_pair, g_idata + i + gid);
+  if (i + lsize < count) SelectHigherScore(&best_pair, g_idata + i + lsize);
   
   sdata[tid] = best_pair;
   barrier(CLK_LOCAL_MEM_FENCE);
   
-  for (unsigned int s = gid >> 2; s > 0; s >>= 1)
+  for (unsigned int s = lsize >> 1; s > 0; s >>= 1)
   {
     if (tid < s)
     {
