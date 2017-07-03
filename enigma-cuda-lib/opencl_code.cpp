@@ -65,10 +65,10 @@ void SetUpScramblerMemory()
   scramblerDataPitch = (28 + 15) & ~size_t(16);
   scramblerDataBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE,
                   scramblerDataPitch*ALPSIZE_TO3);
-  GenerateScramblerKernel.setArg(3, cl_uint(scramblerDataPitch));
-  GenerateScramblerKernel.setArg(4, scramblerDataBuffer);
-  ClimbKernel.setArg(4, cl_uint(scramblerDataPitch));
-  ClimbKernel.setArg(5, scramblerDataBuffer);
+  GenerateScramblerKernel.setArg(4, cl_uint(scramblerDataPitch));
+  GenerateScramblerKernel.setArg(5, scramblerDataBuffer);
+  ClimbKernel.setArg(3, cl_uint(scramblerDataPitch));
+  ClimbKernel.setArg(4, scramblerDataBuffer);
 }
 
 void GenerateScrambler(const Key & key)
