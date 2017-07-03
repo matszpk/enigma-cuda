@@ -102,7 +102,7 @@ inline int8_t mod26(const int16_t x)
 }
 
 kernel void GenerateScramblerKernel(const constant Wiring* d_wiring,
-            const constant Key* d_key, const uint thblockShift,
+            const constant Key* d_key, const uint thblockShift, const uint localShift,
             const uint scramblerDataPitch, global int8_t* scramblerData)
 {
   const uint lid = get_local_id(0);
@@ -110,7 +110,7 @@ kernel void GenerateScramblerKernel(const constant Wiring* d_wiring,
   const uint gidy = get_group_id(1);
   const uint gidz = get_group_id(2);
   const uint thBlockNum = (1U<<thblockShift);
-  const uint thblockMask = (get_local_size(0)>>thblockShift) - 1U;
+  const uint thblockMask = (1U<<(localShift-thblockShift)) - 1U;
   const constant int8_t * reflector;
   
   const constant int8_t * g_rotor;
@@ -145,7 +145,7 @@ kernel void GenerateScramblerKernel(const constant Wiring* d_wiring,
     r_rev_rotor = d_wiring->reverse_rotors[d_key->stru.r_slot];
     
     //core positions
-    r_core_position = gidx*thBlockNum + (lid>>thblockShift);
+    r_core_position = gidx*thBlockNum + (lid>>(localShift-thblockShift));
     m_core_position = gidy;
     l_core_position = gidz;
     g_core_position = mod26(d_key->sett.g_mesg - d_key->sett.g_ring);

@@ -67,8 +67,8 @@ void SetUpScramblerMemory()
                   scramblerDataPitch*ALPSIZE_TO3);
   GenerateScramblerKernel.setArg(3, cl_uint(scramblerDataPitch));
   GenerateScramblerKernel.setArg(4, scramblerDataBuffer);
-  ClimbKernel.setArg(3, cl_uint(scramblerDataPitch));
-  ClimbKernel.setArg(4, scramblerDataBuffer);
+  ClimbKernel.setArg(4, cl_uint(scramblerDataPitch));
+  ClimbKernel.setArg(5, scramblerDataBuffer);
 }
 
 void GenerateScrambler(const Key & key)
@@ -148,12 +148,15 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   GenerateScramblerKernelWGSize = GenerateScramblerKernel.getWorkGroupSize(oclDevice);
   GenerateScramblerKernelWGSize = std::min(GenerateScramblerKernelWGSize, size_t(64));
   thBlockShift = 1;
+  int localShift = 6; // 64
   if (GenerateScramblerKernelWGSize < 64)
   {
+    localShift = 5;
     GenerateScramblerKernelWGSize = 32;
     thBlockShift = 0;
   }
   GenerateScramblerKernel.setArg(2, cl_uint(thBlockShift));
+  GenerateScramblerKernel.setArg(3, cl_uint(localShift));
     
   ClimbKernelWGSize = ClimbKernel.getWorkGroupSize(oclDevice);
   FindBestResultKernelWGSize = FindBestResultKernel.getWorkGroupSize(oclDevice);
