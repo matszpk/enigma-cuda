@@ -157,7 +157,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   }
   GenerateScramblerKernel.setArg(2, cl_uint(thBlockShift));
   GenerateScramblerKernel.setArg(3, cl_uint(localShift));
-    
+  
   ClimbKernelWGSize = ClimbKernel.getWorkGroupSize(oclDevice);
   FindBestResultKernelWGSize = FindBestResultKernel.getWorkGroupSize(oclDevice);
   /// buffers
@@ -254,7 +254,7 @@ void SetUpResultsMemory(int count)
 {
   resultsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE, count*sizeof(Result));
   FindBestResultKernel.setArg(0, resultsBuffer);
-  ClimbKernel.setArgs(13, resultsBuffer);
+  ClimbKernel.setArg(13, resultsBuffer);
 }
 
 void InitializeArrays(const string cipher_string, int turnover_modes,        

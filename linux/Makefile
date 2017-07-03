@@ -5,12 +5,17 @@ CXX = g++-5
 NVCC = nvcc
 AR = ar
 RANLIB = ranlib
-CFLAGS = -Wall -O2
-CXXFLAGS = -Wall -O2 -std=c++11
-NVCCFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
-NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
+#CFLAGS = -Wall -O2
+#CXXFLAGS = -Wall -O2 -std=c++11
+#LDFLAGS = -Wall -O2 -std=c++11
+#NVCCFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
+#NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
+CFLAGS = -Wall -g
+CXXFLAGS = -Wall -g -std=c++11
+LDFLAGS = -Wall -g -std=c++11
+NVCCFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
+NVLDFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
 NVLD = nvcc
-LDFLAGS = -Wall -O2 -std=c++11
 LD = g++-5
 INCDIRS = -I../enigma-cuda-lib
 CUDAINCDIRS = -I/usr/local/cuda-8.0/include
