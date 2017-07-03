@@ -50,6 +50,7 @@ extern string DecodeMessage(const string & ciphertext,
 extern string DecodeMessage(const string & ciphertext,
   const string & key_string, const int8_t * plugs);
 extern int8_t DecodeLetter(int8_t c, const Key & key, const int8_t * plugs);
+extern void CleanUpGPU();
 
 extern "C"
 {

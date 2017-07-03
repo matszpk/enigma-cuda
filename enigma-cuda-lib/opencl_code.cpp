@@ -378,3 +378,27 @@ int8_t DecodeLetter(int8_t c, const Key & key, const int8_t * plugs)
 
   return plugs[mod26(c)];
 }
+
+void CleanUpGPU()
+{
+  FindBestResultKernel = clpp::Kernel();
+  ClimbKernel = clpp::Kernel();
+  GenerateScramblerKernel = clpp::Kernel();
+  
+  d_ciphertextBuffer = clpp::Buffer();
+  d_wiringBuffer = clpp::Buffer();
+  d_keyBuffer = clpp::Buffer();
+  scramblerDataBuffer = clpp::Buffer();
+  d_orderBuffer = clpp::Buffer();
+  d_plugsBuffer = clpp::Buffer();
+  d_fixedBuffer = clpp::Buffer();
+  d_tempBuffer = clpp::Buffer();
+  d_unigramsBuffer = clpp::Buffer();
+  d_bigramsBuffer = clpp::Buffer();
+  resultsBuffer = clpp::Buffer();
+  trigramsBuffer = clpp::Buffer();
+  
+  oclCmdQueue = clpp::CommandQueue();
+  oclProgram = clpp::Program();
+  oclContext = clpp::Context();
+}

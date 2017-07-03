@@ -887,3 +887,6 @@ string DecodeMessage(const string & ciphertext, const string & key_string,
 
   return DecodeMessage(ciphertext, key_string, plugboard.plugs);
 }
+
+void CleanUpGPU()
+{ } // nothing because CUDA
