@@ -13,6 +13,9 @@
 #include <cstdlib>
 #include <clpp.h>
 #include <opencl_code.h>
+#include "plugboard.h"
+#include "ngrams.h"
+#include "iterator.h"
 
 #define REDUCE_MAX_THREADS 256
 
@@ -32,17 +35,18 @@ static cl_uint thBlockShift = 0;
 static clpp::Buffer d_ciphertextBuffer;
 static clpp::Buffer d_wiringBuffer;
 static clpp::Buffer d_keyBuffer;
-static clpp::Buffer scramblerDataPitchBuffer;
+static size_t scramblerDataPitch;
+static clpp::Buffer scramblerDataBuffer;
 static clpp::Buffer d_orderBuffer;
 static clpp::Buffer d_plugsBuffer;
 static clpp::Buffer d_fixedBuffer;
 static clpp::Buffer d_tempBuffer;
+static clpp::Buffer d_unigramsBuffer;
+static clpp::Buffer d_bigramsBuffer;
 static size_t d_tempSize = 0;
 static clpp::Buffer resultsBuffer;
-
-Result * d_temp;
-
-Task h_task;
+static size_t trigramsBufferPitch;
+static clpp::Buffer trigramsBuffer;
 
 extern "C"
 {
@@ -58,21 +62,21 @@ int8_t mod26(const int16_t x)
 void SetUpScramblerMemory()
 {
   oclCmdQueue.writeBuffer(d_wiringBuffer, 0, sizeof(Wiring), &wiring);
-  h_task.scrambler.pitch = (h_task.scrambler.pitch + 15) & ~size_t(16);
-  scramblerDataPitchBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE,
-                  h_task.scrambler.pitch*ALPSIZE_TO3);
-  GenerateScramblerKernel.setArg(3, h_task.scrambler.pitch);
-  GenerateScramblerKernel.setArg(4, scramblerDataPitchBuffer);
+  size_t scramblerDataPitch = (28 + 15) & ~size_t(16);
+  scramblerDataBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE,
+                  scramblerDataPitch*ALPSIZE_TO3);
+  GenerateScramblerKernel.setArg(3, cl_uint(scramblerDataPitch));
+  GenerateScramblerKernel.setArg(4, scramblerDataBuffer);
+  ClimbKernel.setArg(3, cl_uint(scramblerDataPitch));
+  ClimbKernel.setArg(4, scramblerDataBuffer);
 }
 
 void GenerateScrambler(const Key & key)
 {
   oclCmdQueue.writeBuffer(d_keyBuffer, 0, sizeof(Key), &key);
   clpp::Size3  dimGrid(ALPSIZE>>thBlockShift, ALPSIZE, ALPSIZE);
-  size_t dimBlock = GenerateScramblerKernelWGSize;
-  dimGrid[0] *= dimBlock;
-  dimGrid[1] *= dimBlock;
-  dimGrid[2] *= dimBlock;
+  clpp::Size3 dimBlock(GenerateScramblerKernelWGSize, 1, 1);
+  dimGrid[0] *= dimBlock[0];
   oclCmdQueue.enqueueNDRangeKernel(GenerateScramblerKernel, dimGrid, dimBlock).wait();
 }
 
@@ -156,6 +160,18 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   d_orderBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
   d_plugsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
   d_fixedBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
+  d_unigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
+                    ALPSIZE*sizeof(NGRAM_DATA_TYPE));
+  d_bigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
+                    ALPSIZE*ALPSIZE*sizeof(NGRAM_DATA_TYPE));
+  
+  ClimbKernel.setArgs(d_wiringBuffer, d_keyBuffer);
+  ClimbKernel.setArg(7, d_unigramsBuffer);
+  ClimbKernel.setArg(8, d_bigramsBuffer);
+  ClimbKernel.setArg(9, d_plugsBuffer);
+  ClimbKernel.setArg(10, d_orderBuffer);
+  ClimbKernel.setArg(11, d_fixedBuffer);
+  ClimbKernel.setArg(12, d_ciphertextBuffer);
   return true;
 }
 
@@ -164,11 +180,47 @@ void CipherTextToDevice(string ciphertext_string)
   std::vector<int8_t> cipher = TextToNumbers(ciphertext_string);
   int8_t * cipher_data = cipher.data();
   oclCmdQueue.writeBuffer(d_ciphertextBuffer, 0, cipher.size(), cipher_data);
+  ClimbKernel.setArg(2, cl_uint(cipher.size()));
 }
 
 void NgramsToDevice(const string & uni_filename,        
-  const string & bi_filename, const string & tri_filename)
+            const string & bi_filename, const string & tri_filename)
 {
+    if (uni_filename != "")
+  {
+    Unigrams unigrams;
+    unigrams.LoadFromFile(uni_filename);
+    oclCmdQueue.writeBuffer(d_unigramsBuffer, 0,
+                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE, unigrams.data);
+  }
+
+  if (bi_filename != "")
+  {
+    Bigrams bigrams;
+    bigrams.LoadFromFile(bi_filename);
+    oclCmdQueue.writeBuffer(d_bigramsBuffer, 0,
+                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE, bigrams.data);
+  }
+
+  trigramsBufferPitch = 0;
+  trigramsBuffer = clpp::Buffer();
+  if (tri_filename != "")
+  {
+    //trigram data
+    Trigrams trigrams_obj;
+    trigrams_obj.LoadFromFile(tri_filename);
+
+    //non-pitched array in device memory. slightly faster than pitched
+    trigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
+                    sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
+    trigramsBufferPitch = sizeof(NGRAM_DATA_TYPE) * ALPSIZE;
+
+    //data to device
+    oclCmdQueue.writeBuffer(trigramsBuffer, 0, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3,
+                  trigrams_obj.data);
+  }
+  ClimbKernel.setArg(5, cl_uint(trigramsBufferPitch));
+  ClimbKernel.setArg(6, trigramsBuffer);
 }
 
 void OrderToDevice(const int8_t * order)
@@ -193,6 +245,7 @@ void SetUpResultsMemory(int count)
 {
   resultsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE, count*sizeof(Result));
   FindBestResultKernel.setArg(0, resultsBuffer);
+  ClimbKernel.setArgs(13, resultsBuffer);
 }
 
 void InitializeArrays(const string cipher_string, int turnover_modes,        
@@ -203,9 +256,9 @@ void InitializeArrays(const string cipher_string, int turnover_modes,
   //d_wiring
   SetUpScramblerMemory();
   //allow_turnover
-  h_task.turnover_modes = turnover_modes;
+  ClimbKernel.setArg(14, cl_uint(turnover_modes));
   //use unigrams
-  h_task.score_kinds = score_kinds;
+  ClimbKernel.setArg(15, cl_uint(score_kinds));
 
   //d_results
   int count = (int)pow(ALPSIZE, digits);
@@ -218,7 +271,7 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
   int grid_size = single_key ? 1 : ALPSIZE_TO3;
   int block_size = std::max(int(ClimbKernelWGSize), cipher_length);
   int shared_scrambler_size = ((cipher_length + 32) & ~31) * 28;
-  ClimbKernel.setArg(10, clpp::Local(shared_scrambler_size));
+  ClimbKernel.setArg(16, clpp::Local(shared_scrambler_size));
   oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, grid_size*block_size, block_size).wait();
   return GetBestResult(ALPSIZE_TO3);
 }
@@ -272,6 +325,7 @@ Result GetBestResult(int count)
   oclCmdQueue.readBuffer(d_tempBuffer, 0, sizeof(Result), &result);
   return result;
 }
+
 
 string DecodeMessage(const string & ciphertext,
   const string & key_string, const string & plugboard_string)

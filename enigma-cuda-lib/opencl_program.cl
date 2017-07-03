@@ -194,7 +194,7 @@ int ComputeScramblerIndex(int char_pos,
   //period of the rotor turnovers
   int m_period = (r_notch[1] == NONE) ? ALPSIZE : HALF_ALPSIZE;
   int l_period = (m_notch[1] == NONE) ? ALPSIZE : HALF_ALPSIZE;
-  l_period = --l_period * m_period;
+  l_period = (l_period-1) * m_period;
 
   //current wheel position relative to the last notch
   int r_after_notch = sett->r_mesg - r_notch[0];
@@ -487,8 +487,8 @@ void MaximizeScore(local Block * block, const local int8_t * scrambling_table,
 
 kernel void ClimbKernel(const constant Wiring* d_wiring,
             const constant Key* d_key, int taskCount,
-            const uint scramblerDataPitch, global int8_t* scramblerData,
-            const uint trigramsDataPitch, global int8_t* trigramsData,
+            const uint scramblerDataPitch, const global int8_t* scramblerData,
+            const uint trigramsDataPitch, const global int8_t* trigramsData,
             const constant NGRAM_DATA_TYPE* d_unigrams,
             const constant NGRAM_DATA_TYPE* d_bigrams,
             const constant int8_t* d_plugs, const constant int8_t* d_order,
@@ -546,7 +546,7 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   
   if (skip_this_key) return;
   
-  global int8_t * g_scrambling_table;
+  const global int8_t * g_scrambling_table;
   local int8_t * scrambling_table;
   if (lid < block.count)
     {
