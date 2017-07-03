@@ -87,7 +87,6 @@ typedef struct _Result
 typedef struct _Block
 {
     int count;
-    global int* trigrams;
     int8_t plugs[ALPSIZE];
     int unigrams[ALPSIZE];
     ScoreKind score_kind;
@@ -384,7 +383,8 @@ void BiScore(local Block * block, const local int8_t* scrambling_table,
 }
 
 void TriScore(local Block * block, const local int8_t* scrambling_table,
-                  const constant int8_t* d_ciphertext, uint lid)
+                  const constant int8_t* d_ciphertext,
+                  const global NGRAM_DATA_TYPE* trigrams, uint lid)
 {
   //decode char
   if (lid < block->count) 
@@ -393,7 +393,7 @@ void TriScore(local Block * block, const local int8_t* scrambling_table,
 
   //look up scores
   if (lid < (block->count - 2))
-    block->score_buf[lid] = block->trigrams[
+    block->score_buf[lid] = trigrams[
       block->plain_text[lid] * ALPSIZE_TO2 +
       block->plain_text[lid + 1] * ALPSIZE +
       block->plain_text[lid+2]];
@@ -404,11 +404,12 @@ void TriScore(local Block * block, const local int8_t* scrambling_table,
 
 void CalculateScore(local Block * block, const local int8_t * scrambling_table,
           const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams, uint lid)
+          const constant NGRAM_DATA_TYPE* d_bigrams,
+          const global NGRAM_DATA_TYPE* trigrams, uint lid)
 {
   switch (block->score_kind)
   {
-  case skTrigram: TriScore(block, scrambling_table, d_ciphertext, lid); break;
+  case skTrigram: TriScore(block, scrambling_table, d_ciphertext, trigrams, lid); break;
   case skBigram:  BiScore(block, scrambling_table, d_ciphertext, d_bigrams, lid); break;
   case skUnigram: UniScore(block, scrambling_table, d_ciphertext, lid); break;
   case skIC:      IcScore(block, scrambling_table, d_ciphertext, lid); break;
@@ -420,8 +421,9 @@ void CalculateScore(local Block * block, const local int8_t * scrambling_table,
 //------------------------------------------------------------------------------
 void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
           local Block * block, const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams, local int* old_score,
-          const constant int8_t* d_fixed, uint lid)
+          const constant NGRAM_DATA_TYPE* d_bigrams,
+          const global NGRAM_DATA_TYPE* trigrams,
+          local int* old_score, const constant int8_t* d_fixed, uint lid)
 {
     int8_t x, z;
   *old_score = block->score;
@@ -456,7 +458,7 @@ void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  CalculateScore(block, scrambling_table, d_ciphertext, d_bigrams, lid);
+  CalculateScore(block, scrambling_table, d_ciphertext, d_bigrams, trigrams, lid);
 
   if (lid == 0 && block->score <= *old_score)
   {
@@ -472,23 +474,24 @@ void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
 
 void MaximizeScore(local Block * block, const local int8_t * scrambling_table,
           const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams, local int* old_score,
-          const constant int8_t* d_order,
+          const constant NGRAM_DATA_TYPE* d_bigrams,
+          const global NGRAM_DATA_TYPE* trigrams,
+          local int* old_score, const constant int8_t* d_order,
           const constant int8_t* d_fixed, uint lid)
 {
-  CalculateScore(block, scrambling_table, d_ciphertext, d_bigrams, lid);
+  CalculateScore(block, scrambling_table, d_ciphertext, d_bigrams, trigrams, lid);
 
   for (int p = 0; p < ALPSIZE - 1; p++)
     for (int q = p + 1; q < ALPSIZE; q++)
       TrySwap(d_order[p], d_order[q], scrambling_table, block, d_ciphertext, d_bigrams,
-            old_score, d_fixed, lid);
+              trigrams, old_score, d_fixed, lid);
 }
 
 
 kernel void ClimbKernel(const constant Wiring* d_wiring,
             const constant Key* d_key, int taskCount,
             const uint scramblerDataPitch, const global int8_t* scramblerData,
-            const uint trigramsDataPitch, const global int8_t* trigramsData,
+            const uint trigramsDataPitch, const global NGRAM_DATA_TYPE* trigramsData,
             const constant NGRAM_DATA_TYPE* d_unigrams,
             const constant NGRAM_DATA_TYPE* d_bigrams,
             const constant int8_t* d_plugs, const constant int8_t* d_order,
@@ -516,7 +519,6 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
     const uint gxnum = get_num_groups(0);
     const uint gynum = get_num_groups(1);
     
-    block.trigrams = (global int*)(trigramsData);
     block.count = taskCount;
     
     //ring and rotor settings to be tried
@@ -561,7 +563,7 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   if (score_kinds & skIC)
   {
     block.score_kind = skIC;
-    MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, &old_score,
+    MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, trigramsData, &old_score,
               d_order, d_fixed, lid);
   }
   
@@ -569,7 +571,7 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   if (score_kinds & skUnigram)
   {
     block.score_kind = skUnigram;
-    MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, &old_score,
+    MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, trigramsData, &old_score,
               d_order, d_fixed, lid);
   }
   
@@ -577,7 +579,7 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   if (score_kinds & skBigram)
   {
     block.score_kind = skBigram;
-    MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, &old_score,
+    MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, trigramsData, &old_score,
               d_order, d_fixed, lid);
   }
   
@@ -590,8 +592,8 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
     do
     {
       pold_score = block.score;
-      MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, &old_score,
-              d_order, d_fixed, lid);
+      MaximizeScore(&block, scrambling_table, d_ciphertext, d_bigrams, trigramsData,
+                    &old_score, d_order, d_fixed, lid);
     } 
     while (block.score > pold_score);
   }
