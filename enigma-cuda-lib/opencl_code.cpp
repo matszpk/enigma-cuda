@@ -91,7 +91,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
     std::cerr << "OpenCL platform not found. Terminating...";
     return false;
   }
-  int best_device = 0;
+  size_t best_device = 0;
   const std::vector<clpp::Device> devices = platforms[0].getGPUDevices();
   switch(devices.size())
   {
@@ -121,6 +121,11 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
       }
       break;
     }
+  }
+  if (best_device >= devices.size())
+  {
+    std::cerr << "Choosen device out of range" << std::endl;
+    return false;
   }
   const clpp::Device& device = devices[best_device];
   if (!silent)
@@ -347,7 +352,7 @@ string DecodeMessage(const string & ciphertext,
 
   string result = ciphertext;
 
-  for (int i = 0; i < result.length(); i++)
+  for (size_t i = 0; i < result.length(); i++)
   {
     key.Step();
     result[i] = ToChar(DecodeLetter(ToNum(result[i]), key, plugs));
