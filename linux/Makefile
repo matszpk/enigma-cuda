@@ -69,7 +69,7 @@ enigma-opencl: enigma-cuda.o libenigma-opencl.a
 	$(NVCC) $(NVCCFLAGS) $(CUDAINCDIRS) $(INCDIRS) -c -o $@ $<
 
 make.deps: $(ALL_SRCS)
-	$(CXX) $(NVCCFLAGS) $(INCDIRS) $(CUDAINCDIRS) $(CLPPINCDIRS) -x c++ -M $(ALL_SRCS) \
+	$(CXX) $(CXXFLAGS) $(INCDIRS) $(CUDAINCDIRS) $(CLPPINCDIRS) -M $(ALL_SRCS) \
 	| sed -e "s/^\\(.*:.*\\)$$/\\1/" > make.deps
 
 enigma-cuda.o: ../enigma-cuda/enigma-cuda.cpp
