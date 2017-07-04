@@ -324,7 +324,7 @@ Result GetBestResult(int count)
   int s = grid_size;
   while (s > 1)
   {
-    oclCmdQueue.enqueueCopyBuffer(resultsBuffer, d_tempBuffer, 0, 0,
+    oclCmdQueue.enqueueCopyBuffer(d_tempBuffer, resultsBuffer, 0, 0,
                       s * sizeof(Result)).wait();
     ComputeDimensions(s, grid_size, block_size);
     FindBestResultKernel.setArg(2, cl_uint(s));
