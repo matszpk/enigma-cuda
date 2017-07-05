@@ -12,6 +12,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <clpp.h>
+#include <cmath>
 #include <opencl_code.h>
 #include "plugboard.h"
 #include "ngrams.h"
