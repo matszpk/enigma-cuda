@@ -504,6 +504,12 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   local bool skip_this_key;
   global Result * result;
   const uint lid = get_local_id(0);
+  const uint gidx = get_group_id(0);
+  const uint gidy = get_group_id(1);
+  const uint gidz = get_group_id(2);
+  const uint gxnum = get_num_groups(0);
+  const uint gynum = get_num_groups(1);
+  int linear_idx;
   
   if (lid < ALPSIZE)
   {
@@ -513,12 +519,6 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   
   if (lid == 0)
   {
-    const uint gidx = get_group_id(0);
-    const uint gidy = get_group_id(1);
-    const uint gidz = get_group_id(2);
-    const uint gxnum = get_num_groups(0);
-    const uint gynum = get_num_groups(1);
-    
     block.count = taskCount;
     
     //ring and rotor settings to be tried
@@ -534,13 +534,16 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
     sett.l_mesg = (gxnum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key->sett.l_mesg;
     sett.m_mesg = (gxnum > ALPSIZE) ? (gidx / ALPSIZE) % ALPSIZE : d_key->sett.m_mesg;
     sett.r_mesg = (gxnum > 1) ? gidx % ALPSIZE : d_key->sett.r_mesg;
-    
+  }
+  {
     //element of results[] to store the output 
-    int linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
+    linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
     result = &taskResults[linear_idx];
     result->index = linear_idx;
     result->score = 0;
-    
+  }
+  if (lid == 0)
+  {
     skip_this_key = ((gxnum > 1) &&
       (GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
         & turnover_modes) == 0);
