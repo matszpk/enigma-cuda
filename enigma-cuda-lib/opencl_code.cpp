@@ -302,7 +302,7 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
 {
   oclCmdQueue.writeBuffer(d_keyBuffer, 0, sizeof(Key), &key);
   int grid_size = single_key ? 1 : ALPSIZE_TO3;
-  int block_size = std::max(int(ClimbKernelWGSize), cipher_length);
+  int block_size = std::max(32, cipher_length);
   int shared_scrambler_size = ((cipher_length + 32) & ~31) * 28;
   ClimbKernel.setArg(16, clpp::Local(shared_scrambler_size));
   clpp::Size3 workSize(grid_size*block_size, 1, 1);
