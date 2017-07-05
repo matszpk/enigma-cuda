@@ -539,6 +539,7 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
     int linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
     result = &taskResults[linear_idx];
     result->index = linear_idx;
+    result->score = 0;
     
     skip_this_key = ((gxnum > 1) &&
       (GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
