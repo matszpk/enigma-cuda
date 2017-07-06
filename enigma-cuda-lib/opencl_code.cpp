@@ -205,12 +205,6 @@ void NgramsToDevice(const string & uni_filename,
     oclCmdQueue.writeBuffer(d_unigramsBuffer, 0,
                     sizeof(NGRAM_DATA_TYPE)*ALPSIZE, unigrams.data);
   }
-  else
-  {   // zeroing buffer
-      clpp::BufferMapping mapping(oclCmdQueue, d_unigramsBuffer, true, CL_MAP_WRITE,
-                        0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE);
-      memset(mapping.get(), 0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE);
-  }
 
   if (bi_filename != "")
   {
@@ -218,12 +212,6 @@ void NgramsToDevice(const string & uni_filename,
     bigrams.LoadFromFile(bi_filename);
     oclCmdQueue.writeBuffer(d_bigramsBuffer, 0,
                     sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE, bigrams.data);
-  }
-  else
-  {   // zeroing buffer
-      clpp::BufferMapping mapping(oclCmdQueue, d_bigramsBuffer, true, CL_MAP_WRITE,
-                        0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE);
-      memset(mapping.get(), 0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE);
   }
 
   trigramsBufferPitch = 0;
@@ -242,15 +230,6 @@ void NgramsToDevice(const string & uni_filename,
     //data to device
     oclCmdQueue.writeBuffer(trigramsBuffer, 0, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3,
                   trigrams_obj.data);
-  }
-  else
-  {   // zeroing buffer
-      trigramsBufferPitch = sizeof(NGRAM_DATA_TYPE) * ALPSIZE;
-      trigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
-                    sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
-      clpp::BufferMapping mapping(oclCmdQueue, trigramsBuffer, true, CL_MAP_WRITE,
-                        0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE_TO3);
-      memset(mapping.get(), 0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE_TO3);
   }
   ClimbKernel.setArg(5, cl_uint(trigramsBufferPitch));
   ClimbKernel.setArg(6, trigramsBuffer);
