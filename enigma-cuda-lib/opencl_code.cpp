@@ -125,7 +125,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
       break;
     }
   }
-  if (best_device >= devices.size())
+  if (best_device < 0 || size_t(best_device) >= devices.size())
   {
     std::cerr << "Choosen device out of range" << std::endl;
     return false;

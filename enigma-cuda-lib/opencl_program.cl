@@ -607,11 +607,11 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   if (lid == 0) result->score = block.score;
 }
 
-inline void SelectHigherScore(private Result* a, const global Result* b)
+inline void SelectHigherScore(private Result* a, const global Result* b, uint bindex)
 {
   if (b->score > a->score)
   {
-    a->index = b->index;
+    a->index = bindex;
     a->score = b->score;
   }
 }
@@ -636,12 +636,16 @@ kernel void FindBestResultKernel(const global Result* g_idata,
   Result best_pair;
   if (i < count)
   {
-    best_pair.index = g_idata[i].index;
+    best_pair.index = i;
     best_pair.score = g_idata[i].score;
   }
-  else best_pair.score = 0;
+  else 
+  {
+    best_pair.score = g_idata[count-i].score;
+    best_pair.index = count - 1;
+  }
   
-  if (i + lsize < count) SelectHigherScore(&best_pair, g_idata + i + lsize);
+  if (i + lsize < count) SelectHigherScore(&best_pair, g_idata + i + lsize, i+lsize);
   
   sdata[tid] = best_pair;
   barrier(CLK_LOCAL_MEM_FENCE);
