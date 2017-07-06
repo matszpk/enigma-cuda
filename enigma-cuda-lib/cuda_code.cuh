@@ -55,6 +55,8 @@ extern "C"
     __device__
     void TriScore(Block & block, const int8_t * scrambling_table);
     __device__ 
+    void SelectHigherScore0(Result & a, const Result & b, unsigned int bindex);
+    __device__ 
     void SelectHigherScore(Result & a, const Result & b);
     __device__ 
     void TrySwap(int8_t i, int8_t k,
