@@ -713,6 +713,15 @@ void SetUpResultsMemory(int count)
   CUDA_CHECK(cudaMalloc((void**)&h_task.results, count * sizeof(Result)));
 }
 
+__device__ void SelectHigherScore0(Result & a, const Result & b, unsigned int bindex)
+{
+  if (b.score > a.score)
+  {
+    a.index = bindex;
+    a.score = b.score;
+  }
+}
+
 __device__ void SelectHigherScore(Result & a, const Result & b)
 {
   if (b.score > a.score)
@@ -733,12 +742,17 @@ __global__ void FindBestResultKernel(Result *g_idata, Result *g_odata,
   Result best_pair;
   if (i < count)
   {
-    best_pair.index = g_idata[i].index;
+    best_pair.index = i;
     best_pair.score = g_idata[i].score;
   }
-  else best_pair.score = 0;
+  else
+  {
+    best_pair.index = count - 1;
+    best_pair.score = g_idata[count-1].score;
+  }
 
-  if (i + blockDim.x < count) SelectHigherScore(best_pair, g_idata[i + blockDim.x]);
+  if (i + blockDim.x < count)
+    SelectHigherScore0(best_pair, g_idata[i + blockDim.x], i + blockDim.x);
 
   sdata[tid] = best_pair;
   __syncthreads();
