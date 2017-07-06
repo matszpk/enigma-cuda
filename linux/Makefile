@@ -5,16 +5,17 @@ CXX = g++-5
 NVCC = nvcc
 AR = ar
 RANLIB = ranlib
-#CFLAGS = -Wall -O2
-#CXXFLAGS = -Wall -O2 -std=c++11
-#LDFLAGS = -Wall -O2 -std=c++11
-#NVCCFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
-#NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
-CFLAGS = -Wall -g
-CXXFLAGS = -Wall -g -std=c++11
-LDFLAGS = -Wall -g -std=c++11
-NVCCFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
-NVLDFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
+XXD = xxd
+CFLAGS = -Wall -O2
+CXXFLAGS = -Wall -O2 -std=c++11
+LDFLAGS = -Wall -O2 -std=c++11
+NVCCFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
+NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
+#CFLAGS = -Wall -g
+#CXXFLAGS = -Wall -g -std=c++11
+#LDFLAGS = -Wall -g -std=c++11
+#NVCCFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
+#NVLDFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
 NVLD = nvcc
 LD = g++-5
 INCDIRS = -I../enigma-cuda-lib
@@ -90,7 +91,7 @@ util.o: ../enigma-cuda-lib/util.cpp
 wiring.o: ../enigma-cuda-lib/wiring.cpp
 
 opencl_program_data.c: ../enigma-cuda-lib/opencl_program.cl
-	xxd -i $< $@
+	$(XXD) -i $< $@
 
 opencl_program_data.o: opencl_program_data.c
 	$(CC) $(CFLAGS) -c -o $@ $<
