@@ -639,10 +639,10 @@ kernel void FindBestResultKernel(const global Result* g_idata,
     best_pair.index = i;
     best_pair.score = g_idata[i].score;
   }
-  else 
+  else
   {
-    best_pair.score = g_idata[count-i].score;
     best_pair.index = count - 1;
+    best_pair.score = g_idata[count-1].score;
   }
   
   if (i + lsize < count) SelectHigherScore(&best_pair, g_idata + i + lsize, i+lsize);
