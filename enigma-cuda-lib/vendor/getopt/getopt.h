@@ -61,7 +61,7 @@
 #define __GETOPT_H__
 
 /* All the headers include this file. */
-#ifdef _WINDOWS
+#ifdef _WIN32
 #include <crtdefs.h>
 #endif
 #include <errno.h>

@@ -9,10 +9,10 @@
 #include <sstream>
 #include <iostream>
 #include <iomanip>
-#ifndef _WINDOWS
+#ifndef _WIN32
 #include <dirent.h>
 #endif
-#ifdef _WINDOWS
+#ifdef _WIN32
 #include <Windows.h>
 #endif
 #include <ctime>
@@ -92,7 +92,7 @@ string LettersAndSpacesFromText(const string & text)
 
 string GetAbsolutePath(const string & file_name)
 {
-#ifndef _WINDOWS
+#ifndef _WIN32
         char* out = realpath(file_name.c_str(), NULL);
         string outstr;
         try {
@@ -113,7 +113,7 @@ string GetAbsolutePath(const string & file_name)
 extern const char *__progname;
 string GetExeDir()
 {
-#ifndef _WINDOWS
+#ifndef _WIN32
     string result = __progname;
     result = result.substr(0, result.find_last_of("/") + 1);
     return result;
@@ -130,7 +130,7 @@ string TimeString()
 {
   time_t t = std::time(nullptr);
   tm tt;
-#ifndef _WINDOWS
+#ifndef _WIN32
   localtime_r(&t, &tt);
 #else
   localtime_s(&tt, &t);
@@ -173,7 +173,7 @@ string UpperCase(const string & text)
 
 std::vector<string> ListFilesInDirectory(const string & directory)
 {
-#ifndef _WINDOWS
+#ifndef _WIN32
     DIR* dir = opendir(directory.c_str());
     std::vector<string> result;
     struct dirent* dent;
@@ -200,7 +200,7 @@ std::vector<string> ListFilesInDirectory(const string & directory)
 
 void TextToClipboard(const std::string & text)
 {
-#ifdef _WINDOWS
+#ifdef _WIN32
   OpenClipboard(GetDesktopWindow());
   EmptyClipboard();
   HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
