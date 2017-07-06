@@ -10,6 +10,7 @@
 #include <time.h>
 #include <math.h> 
 #include <ctime>
+#include <memory>
 #include <algorithm>
 #include "cuda_code.h"
 #include "cuda_code.cuh"
@@ -324,14 +325,26 @@ void NgramsToDevice(const string & uni_filename,
     unigrams.LoadFromFile(uni_filename);
     CUDA_CHECK(cudaMemcpyToSymbol(d_unigrams, unigrams.data, sizeof(d_unigrams)));
   }
-
+  else // zeroing if no supplied
+  {
+    NGRAM_DATA_TYPE zeroed[ALPSIZE];
+    memset(zeroed, 0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE);
+    CUDA_CHECK(cudaMemcpyToSymbol(d_unigrams, zeroed, sizeof(d_unigrams)));
+  }
+  
   if (bi_filename != "")
   {
     Bigrams bigrams;
     bigrams.LoadFromFile(bi_filename);
     CUDA_CHECK(cudaMemcpyToSymbol(d_bigrams, bigrams.data, sizeof(d_bigrams)));
   }
-
+  else // zeroing if no supplied
+  {
+    std::unique_ptr<NGRAM_DATA_TYPE[]> zeroed(new NGRAM_DATA_TYPE[ALPSIZE_TO2]);
+    memset(zeroed.get(), 0, sizeof(NGRAM_DATA_TYPE)*ALPSIZE_TO2);
+    CUDA_CHECK(cudaMemcpyToSymbol(d_bigrams, zeroed.get(), sizeof(d_bigrams)));
+  }
+  
   if (tri_filename != "")
   {
     //trigram data
@@ -346,6 +359,16 @@ void NgramsToDevice(const string & uni_filename,
     //data to device
     CUDA_CHECK(cudaMemcpy(h_task.trigrams.data, trigrams_obj.data,
       sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3, cudaMemcpyHostToDevice));
+  }
+  else
+  {
+    //non-pitched array in device memory. slightly faster than pitched
+    CUDA_CHECK(cudaMalloc(&h_task.trigrams.data, 
+      sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3));
+    h_task.trigrams.pitch = sizeof(NGRAM_DATA_TYPE) * ALPSIZE;
+    // fill up be zeroes
+    CUDA_CHECK(cudaMemset(h_task.trigrams.data, 0,
+            sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3));
   }
 }
 

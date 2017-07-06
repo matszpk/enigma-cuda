@@ -198,7 +198,7 @@ void CipherTextToDevice(string ciphertext_string)
 void NgramsToDevice(const string & uni_filename,        
             const string & bi_filename, const string & tri_filename)
 {
-    if (uni_filename != "")
+  if (uni_filename != "")
   {
     Unigrams unigrams;
     unigrams.LoadFromFile(uni_filename);
