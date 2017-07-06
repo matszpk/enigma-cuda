@@ -132,7 +132,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   }
   const clpp::Device& device = devices[best_device];
   if (!silent)
-    std::cout << "Found GPU '" << best_device << ": " << device.getName() << std::endl;
+    std::cout << "Found GPU " << best_device << ": '" << device.getName() << "'" << std::endl;
   oclDevice = device;
   
   /*
