@@ -11,6 +11,7 @@
 #include <iomanip>
 #ifndef _WIN32
 #include <dirent.h>
+#include <unistd.h>
 #endif
 #ifdef _WIN32
 #include <Windows.h>
@@ -141,9 +142,15 @@ string TimeString()
   return os.str();  
 }
 
+#ifndef __linux
+string TimeDiffString(myclk_t clock)
+{
+  int seconds = clock / 1000000U;
+#else
 string TimeDiffString(clock_t clock)
 {
   int seconds = clock / CLOCKS_PER_SEC;
+#endif
   int s = seconds % 60;
   int m = (seconds / 60) % 60;
   int h = (seconds / 3600) % 24;

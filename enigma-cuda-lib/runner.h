@@ -13,6 +13,11 @@
 #include "segmenter.h"
 #include "cuda_code.h" 
 
+#ifndef _WIN32
+typedef unsigned long long myclk_t;
+myclk_t myclock();
+#endif
+
 class Runner
 {
 private:
@@ -24,7 +29,7 @@ private:
     KeyIterator iterator;
     Plugboard plugboard;
     WordSegmenter segmenter;
-    clock_t start_time, last_save_time;
+    myclk_t start_time, last_save_time;
     int current_pass;
     string progress_string;
 public:

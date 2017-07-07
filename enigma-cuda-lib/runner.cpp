@@ -4,12 +4,24 @@
 /* Copyright (c) 2017 Alex Shovkoplyas VE3NEA                          */
 
 #include <iostream>
+#ifndef _WIN32
+#include <sys/time.h>
+#endif
 #include "runner.h"
 #include "util.h"
 #include "settings.h"
 #include "plugboard.h"
 #include "cuda_code.h"
 
+#ifndef _WIN32
+myclk_t myclock()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (myclk_t)tv.tv_sec*1000000ULL + (myclk_t)tv.tv_usec;
+}
+#define clock myclock
+#endif
 
 bool Runner::Initialize(int max_length)
 {
