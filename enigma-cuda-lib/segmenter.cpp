@@ -7,6 +7,7 @@
 #include <iterator>
 #include <algorithm>
 #include <sstream>
+#include <cmath>
 #include "segmenter.h"
 
 //words: http://corpus.leeds.ac.uk/frqc/internet-de-forms.num
