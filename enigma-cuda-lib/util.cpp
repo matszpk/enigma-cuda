@@ -142,7 +142,7 @@ string TimeString()
   return os.str();  
 }
 
-#ifndef __linux
+#ifndef _WIN32
 string TimeDiffString(myclk_t clock)
 {
   int seconds = clock / 1000000U;

@@ -7,14 +7,13 @@
 
 #include <iostream>
 #include <fstream>
-#include "runner.h"
+#include "util.h"
 #include "settings.h"
 #include "iterator.h"
 #include "segmenter.h"
 #include "cuda_code.h" 
 
 #ifndef _WIN32
-typedef unsigned long long myclk_t;
 myclk_t myclock();
 #endif
 
@@ -29,7 +28,11 @@ private:
     KeyIterator iterator;
     Plugboard plugboard;
     WordSegmenter segmenter;
+#ifndef _WIN32
     myclk_t start_time, last_save_time;
+#else
+    clock_t start_time, last_save_time;
+#endif
     int current_pass;
     string progress_string;
 public:

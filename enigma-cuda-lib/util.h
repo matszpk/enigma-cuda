@@ -10,6 +10,10 @@
 #include <time.h>
 using std::string;
 
+#ifndef _WIN32
+typedef unsigned long long myclk_t;
+#endif
+
 inline int8_t ToNum(char x)  { return x - 'A'; }
 inline char ToChar(int8_t x) { return x + 'A'; }
 
@@ -22,7 +26,11 @@ extern string LettersFromText(const string & text);
 extern string LettersAndSpacesFromText(const string & text);
 extern string GetAbsolutePath(const string & file_name);
 extern string GetExeDir();
+#ifndef _WIN32
+extern string TimeDiffString(myclk_t clock);
+#else
 extern string TimeDiffString(clock_t clock);
+#endif
 extern string TimeString();
 extern string LowerCase(const string & text);
 extern string UpperCase(const string & text);
