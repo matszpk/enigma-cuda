@@ -65,7 +65,7 @@ int8_t mod26(const int16_t x)
 void SetUpScramblerMemory()
 {
   oclCmdQueue.writeBuffer(d_wiringBuffer, 0, sizeof(Wiring), &wiring);
-  scramblerDataPitch = (28 + 15) & ~size_t(16);
+  scramblerDataPitch = (28 + 15) & ~size_t(15);
   scramblerDataBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE,
                   scramblerDataPitch*ALPSIZE_TO3);
   GenerateScramblerKernel.setArg(4, cl_uint(scramblerDataPitch));
