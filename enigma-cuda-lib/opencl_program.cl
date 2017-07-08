@@ -540,7 +540,7 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
     linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
     result = &taskResults[linear_idx];
     result->index = linear_idx;
-    result->score = 0;
+    result->score = -1;
   }
   if (lid == 0)
   {

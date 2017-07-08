@@ -95,7 +95,12 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
     return false;
   }
   size_t best_device = 0;
-  const std::vector<clpp::Device> devices = platforms[0].getGPUDevices();
+  std::vector<clpp::Device> devices;
+  for (const clpp::Platform& platform: platforms)
+  {
+    std::vector<clpp::Device> tempDevs = platform.getGPUDevices();
+    devices.insert(devices.end(), tempDevs.begin(), tempDevs.end());
+  }
   switch(devices.size())
   {
     case 0:
@@ -139,7 +144,9 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
    * creating opencl stuff
    * building program and creating kernels
    */
-  oclContext = clpp::Context(device);
+  const cl_context_properties ctxProps[3] = { CL_CONTEXT_PLATFORM,
+        (cl_context_properties)device.getPlatform()(), 0 };
+  oclContext = clpp::Context(ctxProps, device);
   oclCmdQueue = clpp::CommandQueue(oclContext, oclDevice);
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
                     ___enigma_cuda_lib_opencl_program_cl_len);
