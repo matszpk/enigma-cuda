@@ -15,7 +15,7 @@ Radeon Rx 400/VEGA and later).
 
 ## Building
 
-Script for 'GNU make' and 'NMake' are in 'linux' and 'windows' directory.
+The scripts for 'GNU make' and 'NMake' are in 'linux' and 'windows' directory.
 I did not add new executable to MS Visual Studio project. Just use 'make' or 'nmake' to
 build enigma-opencl executable. Also, enigma-cuda executable for Linux can be built
 using 'make' tool.
