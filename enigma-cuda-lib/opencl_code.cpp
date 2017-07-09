@@ -91,7 +91,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   std::vector<clpp::Platform> platforms = clpp::Platform::get();
   if (platforms.empty())
   {
-    std::cerr << "OpenCL platform not found. Terminating...";
+    std::cerr << "OpenCL platform not found. Terminating..." << std::endl;
     return false;
   }
   size_t best_device = 0;
@@ -104,7 +104,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   switch(devices.size())
   {
     case 0:
-      std::cerr << "OpenCL platform not found. Terminating...";
+      std::cerr << "OpenCL device not found. Terminating..." << std::endl;
       return false;
     case 1:
       break;
