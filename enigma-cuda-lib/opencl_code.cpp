@@ -31,6 +31,7 @@ static size_t GenerateScramblerKernelWGSize;
 static clpp::Kernel ClimbKernel;
 static size_t ClimbKernelWGSize;
 static clpp::Kernel FindBestResultKernel;
+static clpp::Kernel FindBestResultKernel2;
 static size_t FindBestResultKernelWGSize;
 static cl_uint thBlockShift = 0;
 
@@ -154,6 +155,7 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   GenerateScramblerKernel = clpp::Kernel(oclProgram, "GenerateScramblerKernel");
   ClimbKernel = clpp::Kernel(oclProgram, "ClimbKernel");
   FindBestResultKernel = clpp::Kernel(oclProgram, "FindBestResultKernel");
+  FindBestResultKernel2 = clpp::Kernel(oclProgram, "FindBestResultKernel");
   
   GenerateScramblerKernelWGSize = GenerateScramblerKernel.getWorkGroupSize(oclDevice);
   GenerateScramblerKernelWGSize = std::min(GenerateScramblerKernelWGSize, size_t(64));
@@ -264,6 +266,7 @@ void SetUpResultsMemory(int count)
 {
   resultsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE, count*sizeof(Result));
   FindBestResultKernel.setArg(0, resultsBuffer);
+  FindBestResultKernel2.setArg(1, resultsBuffer);
   ClimbKernel.setArg(13, resultsBuffer);
 }
 
@@ -310,7 +313,8 @@ unsigned int nextPow2(unsigned int x)
 
 void ComputeDimensions(int count, int & grid_size, int & block_size)
 {
-  block_size = (count < REDUCE_MAX_THREADS * 2) ? nextPow2((count + 1) / 2) : REDUCE_MAX_THREADS;
+  block_size = (count < REDUCE_MAX_THREADS * 2) ?
+        nextPow2((count + 1) / 2) : REDUCE_MAX_THREADS;
   grid_size = (count + (block_size * 2 - 1)) / (block_size * 2);
 }
 
@@ -325,25 +329,27 @@ Result GetBestResult(int count)
     d_tempBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE, grid_size * sizeof(Result));
     d_tempSize = grid_size*sizeof(Result);
     FindBestResultKernel.setArg(1, d_tempBuffer);
+    FindBestResultKernel2.setArg(0, d_tempBuffer);
   }
   
   FindBestResultKernel.setArg(2, cl_uint(count));
   oclCmdQueue.enqueueNDRangeKernel(FindBestResultKernel,
                             grid_size*block_size, block_size);
   
+  bool swapped = true;
   int s = grid_size;
   while (s > 1)
   {
-    oclCmdQueue.enqueueCopyBuffer(d_tempBuffer, resultsBuffer, 0, 0,
-                      s * sizeof(Result));
     ComputeDimensions(s, grid_size, block_size);
-    FindBestResultKernel.setArg(2, cl_uint(s));
-    oclCmdQueue.enqueueNDRangeKernel(FindBestResultKernel, grid_size*block_size,
-                          block_size);
+    const clpp::Kernel& kernel = swapped ? FindBestResultKernel2 : FindBestResultKernel;
+    kernel.setArg(2, cl_uint(s));
+    oclCmdQueue.enqueueNDRangeKernel(kernel, grid_size*block_size, block_size);
     s = (s + (block_size * 2 - 1)) / (block_size * 2);
+    swapped = !swapped;
   }
   Result result;
-  oclCmdQueue.readBuffer(d_tempBuffer, 0, sizeof(Result), &result);
+  oclCmdQueue.readBuffer(swapped ? d_tempBuffer : resultsBuffer,
+                         0, sizeof(Result), &result);
   return result;
 }
 
@@ -401,6 +407,7 @@ int8_t DecodeLetter(int8_t c, const Key & key, const int8_t * plugs)
 void CleanUpGPU()
 {
   FindBestResultKernel = clpp::Kernel();
+  FindBestResultKernel2 = clpp::Kernel();
   ClimbKernel = clpp::Kernel();
   GenerateScramblerKernel = clpp::Kernel();
   
