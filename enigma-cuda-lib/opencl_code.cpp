@@ -76,7 +76,7 @@ void SetUpScramblerMemory()
 
 void GenerateScrambler(const Key & key)
 {
-  oclCmdQueue.writeBuffer(d_keyBuffer, 0, sizeof(Key), &key);
+  oclCmdQueue.enqueueWriteBuffer(d_keyBuffer, 0, sizeof(Key), &key);
   clpp::Size3  dimGrid(ALPSIZE>>thBlockShift, ALPSIZE, ALPSIZE);
   clpp::Size3 dimBlock(GenerateScramblerKernelWGSize, 1, 1);
   dimGrid[0] *= dimBlock[0];
@@ -256,7 +256,7 @@ void PlugboardStringToDevice(string plugboard_string)
 
 void PlugboardToDevice(const Plugboard & plugboard)
 {
-  oclCmdQueue.writeBuffer(d_plugsBuffer, 0, ALPSIZE, plugboard.plugs);
+  oclCmdQueue.enqueueWriteBuffer(d_plugsBuffer, 0, ALPSIZE, plugboard.plugs);
   oclCmdQueue.writeBuffer(d_fixedBuffer, 0, ALPSIZE, plugboard.fixed);
 }
 
@@ -286,14 +286,14 @@ void InitializeArrays(const string cipher_string, int turnover_modes,
 
 Result Climb(int cipher_length, const Key & key, bool single_key)
 {
-  oclCmdQueue.writeBuffer(d_keyBuffer, 0, sizeof(Key), &key);
+  oclCmdQueue.enqueueWriteBuffer(d_keyBuffer, 0, sizeof(Key), &key);
   int grid_size = single_key ? 1 : ALPSIZE_TO3;
   int block_size = std::max(32, cipher_length);
   int shared_scrambler_size = ((cipher_length + 31) & ~31) * 28;
   ClimbKernel.setArg(16, clpp::Local(shared_scrambler_size));
   clpp::Size3 workSize(grid_size*block_size, 1, 1);
   clpp::Size3 localSize(block_size, 1, 1);
-  oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, workSize, localSize).wait();
+  oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, workSize, localSize);
   return GetBestResult(ALPSIZE_TO3);
 }
 
@@ -329,17 +329,17 @@ Result GetBestResult(int count)
   
   FindBestResultKernel.setArg(2, cl_uint(count));
   oclCmdQueue.enqueueNDRangeKernel(FindBestResultKernel,
-                            grid_size*block_size, block_size).wait();
+                            grid_size*block_size, block_size);
   
   int s = grid_size;
   while (s > 1)
   {
     oclCmdQueue.enqueueCopyBuffer(d_tempBuffer, resultsBuffer, 0, 0,
-                      s * sizeof(Result)).wait();
+                      s * sizeof(Result));
     ComputeDimensions(s, grid_size, block_size);
     FindBestResultKernel.setArg(2, cl_uint(s));
     oclCmdQueue.enqueueNDRangeKernel(FindBestResultKernel, grid_size*block_size,
-                          block_size).wait();
+                          block_size);
     s = (s + (block_size * 2 - 1)) / (block_size * 2);
   }
   Result result;
