@@ -432,27 +432,13 @@ void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
   {              
     x = block->plugs[i];
     z = block->plugs[k];
-
-    if (x == k)
+    if (x != k)
     {
-      block->plugs[i] = i;
-      block->plugs[k] = k;
+      block->plugs[x] = (x != i) ? x : block->plugs[x];
+      block->plugs[z] = (z != k) ? z : block->plugs[z];
     }
-    else
-    {
-      if (x != i)
-      {
-        block->plugs[i] = i;
-        block->plugs[x] = x;
-      };
-      if (z != k)
-      {
-        block->plugs[k] = k;
-        block->plugs[z] = z;
-      };
-      block->plugs[i] = k;
-      block->plugs[k] = i;
-    }
+    block->plugs[i] = (x==k) ? i : k;
+    block->plugs[k] = (x==k) ? k : i;
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
