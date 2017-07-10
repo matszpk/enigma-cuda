@@ -293,17 +293,15 @@ int8_t Decode(const local int8_t * plugboard, const local int8_t * scrambling_ta
   return c;
 }
 
+// especially optimized for AMD GPU (64 work items in group size)
 void Sum(int count, volatile local int * data, local int * sum, uint lid)
 {
   if ((lid + 128) < count) data[lid] += data[128 + lid];
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  if (lid < 64 && (lid + 64) < count)
-    data[lid] += data[64 + lid];
-  barrier(CLK_LOCAL_MEM_FENCE);
-
-  if (lid < 32)
+  if (lid < 64)
   {
+    if ((lid + 64) < count) data[lid] += data[64 + lid];
     if ((lid + 32) < count) data[lid] += data[32 + lid];
     if ((lid + 16) < count) data[lid] += data[16 + lid];
     data[lid] += data[8 + lid];
@@ -425,7 +423,7 @@ void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
           const global NGRAM_DATA_TYPE* trigrams,
           local int* old_score, const constant int8_t* d_fixed, uint lid)
 {
-    int8_t x, z;
+  int8_t x, z;
   *old_score = block->score;
 
   if (d_fixed[i] || d_fixed[k]) return;
