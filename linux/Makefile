@@ -50,7 +50,7 @@ libenigma-cuda.a: cuda_code.o ini_file.o iterator.o key.o ngrams.o plugboard.o \
 	$(RANLIB) $@
 
 libenigma-opencl.a: ini_file.o iterator.o key.o ngrams.o opencl_code.o plugboard.o \
-		runner.o segmenter.o settings.o util.o wiring.o opencl_program_data.o
+		runner-ocl.o segmenter.o settings.o util.o wiring.o opencl_program_data.o
 	$(AR) cr $@ $^
 	$(RANLIB) $@
 
@@ -66,29 +66,21 @@ enigma-opencl: enigma-cuda.o libenigma-opencl.a
 %.o: ../enigma-cuda-lib/%.cpp
 	$(CXX) $(CXXFLAGS) $(INCDIRS) -c -o $@ $<
 
+%-ocl.o: ../enigma-cuda-lib/%.cpp
+	$(CXX) $(CXXFLAGS) $(INCDIRS) -DHAVE_OPENCL=1 -c -o $@ $<
+
 %.o: ../enigma-cuda-lib/%.cu
 	$(NVCC) $(NVCCFLAGS) $(CUDAINCDIRS) $(INCDIRS) -c -o $@ $<
 
 make.deps: $(ALL_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCDIRS) $(CUDAINCDIRS) $(CLPPINCDIRS) -x c++ -M $(ALL_SRCS) \
 	| sed -e "s/^\\(.*:.*\\)$$/\\1/" > make.deps
+	$(CXX) $(CXXFLAGS) $(INCDIRS) $(CUDAINCDIRS) $(CLPPINCDIRS) -x c++ -M \
+	../enigma-cuda-lib/runner.cpp \
+	| sed -e "s/^.*:\\(.*\\)$$/runner-ocl.o: \\1/" >> make.deps
 
-enigma-cuda.o: ../enigma-cuda/enigma-cuda.cpp
-
-cuda_code.o: ../enigma-cuda-lib/cuda_code.cu
-ini_file.o: ../enigma-cuda-lib/ini_file.cpp
-iterator.o: ../enigma-cuda-lib/iterator.cpp
-key.o: ../enigma-cuda-lib/key.cpp
 opencl_code.o: ../enigma-cuda-lib/opencl_code.cpp
 	$(CXX) $(CXXFLAGS) $(INCDIRS) $(CLPPINCDIRS) -c -o $@ $<
-ngrams.o: ../enigma-cuda-lib/ngrams.cpp
-plugboard.o: ../enigma-cuda-lib/plugboard.cpp
-runner.o: ../enigma-cuda-lib/runner.cpp
-segmenter.o: ../enigma-cuda-lib/segmenter.cpp
-settings.o: ../enigma-cuda-lib/settings.cpp
-#test_helper.o: ../enigma-cuda-lib/test_helper.cu
-util.o: ../enigma-cuda-lib/util.cpp
-wiring.o: ../enigma-cuda-lib/wiring.cpp
 
 opencl_program_data.c: ../enigma-cuda-lib/opencl_program.cl
 	$(XXD) -i $< $@
