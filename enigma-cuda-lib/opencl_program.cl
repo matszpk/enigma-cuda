@@ -84,6 +84,12 @@ typedef struct _Result
     int index;
 } Result;
 
+typedef struct _ResultScore
+{
+    int score;
+    int index;
+} ResultScore;
+
 typedef struct _Block
 {
     int count;
@@ -600,7 +606,7 @@ inline void SelectHigherScore(private Result* a, const global Result* b, uint bi
   }
 }
 
-inline void SelectHigherScoreLocal(private Result* a, const local Result* b)
+inline void SelectHigherScoreLocal(private Result* a, const local ResultScore* b)
 {
   if (b->score > a->score)
   {
@@ -612,7 +618,7 @@ inline void SelectHigherScoreLocal(private Result* a, const local Result* b)
 kernel void FindBestResultKernel(const global Result* g_idata,
             global Result* g_odata, uint count)
 {
-  local Result sdata[REDUCE_MAX_THREADS];
+  local ResultScore sdata[REDUCE_MAX_THREADS];
   unsigned int tid = get_local_id(0);
   unsigned int gid = get_group_id(0);
   unsigned int lsize = get_local_size(0);
@@ -631,7 +637,8 @@ kernel void FindBestResultKernel(const global Result* g_idata,
   
   if (i + lsize < count) SelectHigherScore(&best_pair, g_idata + i + lsize, i+lsize);
   
-  sdata[tid] = best_pair;
+  sdata[tid].score = best_pair.score;
+  sdata[tid].index = best_pair.index;
   barrier(CLK_LOCAL_MEM_FENCE);
   
   for (unsigned int s = lsize >> 1; s > 0; s >>= 1)
@@ -639,7 +646,8 @@ kernel void FindBestResultKernel(const global Result* g_idata,
     if (tid < s)
     {
       SelectHigherScoreLocal(&best_pair, sdata + tid + s);
-      sdata[tid] = best_pair;
+      sdata[tid].score = best_pair.score;
+      sdata[tid].index = best_pair.index;
     }
     barrier(CLK_LOCAL_MEM_FENCE);
   }
