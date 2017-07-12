@@ -809,7 +809,7 @@ Result GetBestResult(int count)
 //------------------------------------------------------------------------------
 //                                  util
 //------------------------------------------------------------------------------
-bool SelectGpuDevice(int req_major, int req_minor, bool silent)
+bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool silent)
 {
   int best_device = 0;
   int num_devices;
@@ -827,16 +827,32 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
     break;
 
   default:
-    int max_sm = 0;
-    for (int device = 0; device < num_devices; device++)
+  {
+    const char* cldevStr = getenv("CUDADEV");
+    if (settings_device != -1)
+      best_device = settings_device;
+    else if (cldevStr != nullptr)
+      best_device = atoi(cldevStr);
+    else // just choose
     {
-      CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
-      if (prop.multiProcessorCount > max_sm)
+      int max_sm = 0;
+      for (int device = 0; device < num_devices; device++)
       {
-        max_sm = prop.multiProcessorCount;
-        best_device = device;
+        CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
+        if (prop.multiProcessorCount > max_sm)
+        {
+          max_sm = prop.multiProcessorCount;
+          best_device = device;
+        }
       }
     }
+  }
+  }
+  
+  if (best_device < 0 || size_t(best_device) >= num_devices)
+  {
+    std::cerr << "Choosen device out of range" << std::endl;
+    return false;
   }
 
   CUDA_CHECK(cudaGetDeviceProperties(&prop, best_device));

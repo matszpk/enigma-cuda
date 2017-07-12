@@ -91,7 +91,8 @@ void GenerateScrambler(const Key & key)
 /*
  * OpenCL init
  */
-bool SelectGpuDevice(int req_major, int req_minor, bool silent, int ciphertext_length)
+bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
+                bool silent, int ciphertext_length)
 {
   std::vector<clpp::Platform> platforms = clpp::Platform::get();
   if (platforms.empty())
@@ -116,7 +117,9 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent, int ciphertext_l
     default:
     {
       const char* cldevStr = getenv("CLDEV");
-      if (cldevStr != nullptr)
+      if (settings_device != -1)
+        best_device = settings_device;
+      else if (cldevStr != nullptr)
         best_device = atoi(cldevStr);
       else // just select
       {

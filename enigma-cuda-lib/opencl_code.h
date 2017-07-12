@@ -49,7 +49,7 @@ struct Block
 extern void SetUpScramblerMemory();
 extern void GenerateScrambler(const Key & key);
 extern void CopyScramblerToHost(PitchedArray & dst);
-extern bool SelectGpuDevice(int req_major, int req_minor,
+extern bool SelectGpuDevice(int req_major, int req_minor, int device,
   bool silent, int ciphertext_length);
 extern void CipherTextToDevice(string ciphertext_string);
 extern void NgramsToDevice(const string & uni_filename,        

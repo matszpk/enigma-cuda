@@ -91,9 +91,27 @@ bool Settings::FromCommandLine(int argc, char **argv)
     int opt;
     opterr = 0;
     bool resume = false;
-
+    device = -1; // not set
     try
     {
+        // get device number
+        {
+            int i, j;
+            for (i = j = 1; i <= argc; i++)
+            {
+                if (i < argc && ::strcmp(argv[i], "--device")==0 && i+1 < argc)
+                {   // get from next argv
+                    device = atoi(argv[i+1]);
+                    i++;
+                }
+                else if (i < argc && ::strncmp(argv[i], "--device=", 9)==0)
+                    device = atoi(argv[i]+9);
+                else // copy other args
+                    argv[j++] = argv[i];
+            }
+            argc = j-1;
+        }
+        
         while ((opt = getopt(argc, argv, VALID_OPTIONS)) != -1)
         {
             switch (opt)

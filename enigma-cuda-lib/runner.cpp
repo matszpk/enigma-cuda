@@ -32,7 +32,7 @@ bool Runner::Initialize(int max_length)
   try
   {
 #ifndef HAVE_OPENCL
-      if (!SelectGpuDevice(2, 0, silent)) return false;
+      if (!SelectGpuDevice(2, 0, settings.device, silent)) return false;
 #endif
       
       //load ciphertext
@@ -42,7 +42,7 @@ bool Runner::Initialize(int max_length)
 
 #ifdef HAVE_OPENCL
       // we need ciphertext before building OpenCL code
-      if (!SelectGpuDevice(2, 0, silent, ciphertext.size())) return false;
+      if (!SelectGpuDevice(2, 0, settings.device, silent, ciphertext.size())) return false;
 #endif
 
       length = (int)ciphertext.length();

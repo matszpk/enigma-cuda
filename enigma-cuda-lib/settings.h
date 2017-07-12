@@ -69,6 +69,8 @@ struct Settings
     string best_pluggoard_string;
     
     bool single_key;
+    
+    int device; // GPU device
 
     bool FromCommandLine(int argc, char **argv);
     bool LoadResumeFile();
