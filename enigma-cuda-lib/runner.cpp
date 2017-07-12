@@ -232,12 +232,20 @@ void Runner::ProcessResult(const Result & result)
     }
 
     //save Resume file
+#ifdef _WIN32
     int seconds = (clock() - last_save_time) / CLOCKS_PER_SEC;
+#else
+    int seconds = (myclock() - last_save_time) / 1000000ULL;
+#endif
     if (seconds >= 60 || settings.best_score >= settings.stop_at_score) 
     {
         settings.current_key_string = iterator.key.ToString();
         settings.SaveResumeFile();
+#ifdef _WIN32
         last_save_time = clock();
+#else
+        last_save_time = myclock();
+#endif
     }
 }
 
