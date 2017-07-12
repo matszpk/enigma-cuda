@@ -20,6 +20,10 @@
 #include "ngrams.h"
 #include "iterator.h"
 
+#ifdef _WIN32
+#define snprintf _snprintf
+#endif
+
 #define REDUCE_MAX_THREADS 256
 
 static clpp::Device oclDevice;
@@ -87,7 +91,7 @@ void GenerateScrambler(const Key & key)
 /*
  * OpenCL init
  */
-bool SelectGpuDevice(int req_major, int req_minor, bool silent)
+bool SelectGpuDevice(int req_major, int req_minor, bool silent, int ciphertext_length)
 {
   std::vector<clpp::Platform> platforms = clpp::Platform::get();
   if (platforms.empty())
@@ -151,7 +155,11 @@ bool SelectGpuDevice(int req_major, int req_minor, bool silent)
   oclCmdQueue = clpp::CommandQueue(oclContext, oclDevice);
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
                     ___enigma_cuda_lib_opencl_program_cl_len);
-  oclProgram.build();
+  {
+    char optionsBuf[48];
+    snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d", ciphertext_length);
+    oclProgram.build(optionsBuf);
+  }
   GenerateScramblerKernel = clpp::Kernel(oclProgram, "GenerateScramblerKernel");
   ClimbKernel = clpp::Kernel(oclProgram, "ClimbKernel");
   FindBestResultKernel = clpp::Kernel(oclProgram, "FindBestResultKernel");

@@ -11,7 +11,11 @@
 #include "settings.h"
 #include "iterator.h"
 #include "segmenter.h"
-#include "cuda_code.h" 
+#ifdef HAVE_OPENCL
+#include "opencl_code.h"
+#else
+#include "cuda_code.h"
+#endif
 
 #ifndef _WIN32
 myclk_t myclock();

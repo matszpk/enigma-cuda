@@ -11,7 +11,11 @@
 #include "util.h"
 #include "settings.h"
 #include "plugboard.h"
+#ifdef HAVE_OPENCL
+#include "opencl_code.h"
+#else
 #include "cuda_code.h"
+#endif
 
 #ifndef _WIN32
 myclk_t myclock()
@@ -27,12 +31,19 @@ bool Runner::Initialize(int max_length)
 {
   try
   {
+#ifndef HAVE_OPENCL
       if (!SelectGpuDevice(2, 0, silent)) return false;
+#endif
       
       //load ciphertext
       ciphertext = LoadTextFromFile(settings.ciphertext_file_name);
       ciphertext = LettersFromText(ciphertext);
       ciphertext = ciphertext.substr(0, max_length);
+
+#ifdef HAVE_OPENCL
+      // we need ciphertext before building OpenCL code
+      if (!SelectGpuDevice(2, 0, silent, ciphertext.size())) return false;
+#endif
 
       length = (int)ciphertext.length();
       if (length < MIN_MESSAGE_LENGTH)
