@@ -25,6 +25,7 @@
 #endif
 
 #define REDUCE_MAX_THREADS 256
+#define SCRAMBLER_STRIDE 8
 
 static clpp::Device oclDevice;
 static clpp::Context oclContext;
@@ -159,8 +160,9 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
                     ___enigma_cuda_lib_opencl_program_cl_len);
   {
-    char optionsBuf[48];
-    snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d", ciphertext_length);
+    char optionsBuf[64];
+    snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d"
+            " -DSCRAMBLER_STRIDE=%d", ciphertext_length, SCRAMBLER_STRIDE);
     oclProgram.build(optionsBuf);
   }
   GenerateScramblerKernel = clpp::Kernel(oclProgram, "GenerateScramblerKernel");
@@ -303,7 +305,8 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
   oclCmdQueue.enqueueWriteBuffer(d_keyBuffer, 0, sizeof(Key), &key);
   int grid_size = single_key ? 1 : ALPSIZE_TO3;
   int block_size = std::max(32, cipher_length);
-  int shared_scrambler_size = ((cipher_length + 31) & ~31) * 28;
+  int shared_scrambler_size = ((cipher_length + (SCRAMBLER_STRIDE-1)) &
+                    ~(SCRAMBLER_STRIDE-1)) * 28;
   ClimbKernel.setArg(16, clpp::Local(shared_scrambler_size));
   clpp::Size3 workSize(grid_size*block_size, 1, 1);
   clpp::Size3 localSize(block_size, 1, 1);

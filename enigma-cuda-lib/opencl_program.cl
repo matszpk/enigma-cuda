@@ -284,8 +284,8 @@ local int8_t * ScramblerToShared(const global int8_t * global_scrambling_table,
   local int32_t * dst = (local int32_t *)(shared_scrambling_table);
 
   //copy ALPSIZE bytes as 7 x 32-bit words
-  int idx = (lid & ~31) * 7 + (lid & 31);
-  for (int i = 0; i < 7; ++i) dst[idx + 32 * i] = src[i];
+  int idx = (lid & ~(SCRAMBLER_STRIDE-1)) * 7 + (lid & (SCRAMBLER_STRIDE-1));
+  for (int i = 0; i < 7; ++i) dst[idx + SCRAMBLER_STRIDE * i] = src[i];
   return &shared_scrambling_table[idx * 4];
 }
 
@@ -294,7 +294,7 @@ int8_t Decode(const local int8_t * plugboard, const local int8_t * scrambling_ta
 {
   int8_t c = d_ciphertext[lid];
   c = plugboard[c];
-  c = scrambling_table[(c & ~3) * 32 + (c & 3)];
+  c = scrambling_table[(c & ~3) * SCRAMBLER_STRIDE + (c & 3)];
   c = plugboard[c];  
   return c;
 }
