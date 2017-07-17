@@ -32,10 +32,11 @@ const string help_string =
 "  - E <letters>   exhaustive search with multiple fixed plugs, e.g.EN\r\n"
 "  - p             start with random swapping order\r\n"
 "  - g <scores>    use scores: 0 = IC, 1 = unigrams, 2 = bigrams, 3 = trigrams. default = 023\r\n"
+"  - d <device>    GPU device number\r\n"
 "  - icuwrmk       ignored but do not result in an error\r\n";
 
 
-#define VALID_OPTIONS "hvicpxaRM:w:r:m:u:s:f:t:k:n:z:o:e:E:g:"
+#define VALID_OPTIONS "hvicpxaRM:w:r:m:u:s:f:t:k:n:z:o:e:E:g:d:"
 
 
 string OptionGToString(int value)
@@ -94,24 +95,6 @@ bool Settings::FromCommandLine(int argc, char **argv)
     device = -1; // not set
     try
     {
-        // get device number
-        {
-            int i, j;
-            for (i = j = 1; i <= argc; i++)
-            {
-                if (i < argc && ::strcmp(argv[i], "--device")==0 && i+1 < argc)
-                {   // get from next argv
-                    device = atoi(argv[i+1]);
-                    i++;
-                }
-                else if (i < argc && ::strncmp(argv[i], "--device=", 9)==0)
-                    device = atoi(argv[i]+9);
-                else // copy other args
-                    argv[j++] = argv[i];
-            }
-            argc = j-1;
-        }
-        
         while ((opt = getopt(argc, argv, VALID_OPTIONS)) != -1)
         {
             switch (opt)
@@ -192,6 +175,10 @@ bool Settings::FromCommandLine(int argc, char **argv)
             case 'r':
             case 'm':
             case 'k':
+                break;
+            
+            case 'd':
+                device = atoi(optarg);
                 break;
 
             default:
