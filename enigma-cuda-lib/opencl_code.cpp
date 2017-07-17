@@ -27,6 +27,11 @@
 #define REDUCE_MAX_THREADS 256
 #define SCRAMBLER_STRIDE 8
 
+// for AMD
+#define PLATFORM_VENDOR "Advanced Micro Devices, Inc."
+// for NVIDIA
+//#define PLATFORM_VENDOR "NVIDIA Corporation"
+
 static clpp::Device oclDevice;
 static clpp::Context oclContext;
 static clpp::Program oclProgram;
@@ -102,12 +107,22 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
     return false;
   }
   size_t best_device = 0;
-  std::vector<clpp::Device> devices;
-  for (const clpp::Platform& platform: platforms)
+  int platformIndex = -1;
+  for (size_t i = 0;  i < platforms.size(); i++)
+    if (platforms[i].getVendor()==PLATFORM_VENDOR)
+    {
+      platformIndex = i;
+      break;
+    }
+  if (platformIndex==-1)
   {
-    std::vector<clpp::Device> tempDevs = platform.getGPUDevices();
-    devices.insert(devices.end(), tempDevs.begin(), tempDevs.end());
+    std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR << ") not found.\r\n"
+        "Use first OpenCL platform\r\n";
+    platformIndex = 0;
   }
+  const clpp::Platform& platform = platforms[platformIndex];
+  const std::vector<clpp::Device> devices = platform.getGPUDevices();
+
   switch(devices.size())
   {
     case 0:
