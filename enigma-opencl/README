@@ -1,8 +1,8 @@
 This binaries from code from revision:
 
-commit 0cdb1b871b4e5e6aad3a86821572ce31e70e7d04
+commit 6d76cf157eb13c98570df953de7aeafb0aea670e
 Author: matszpk <matszpk@interia.pl>
-Date:   Wed Jul 12 16:28:06 2017 +0200
+Date:   Mon Jul 17 18:11:59 2017 +0200
 
-    Add '--device' option to CUDA and OpenCL version. Add CUDADEV to CUDA
-    version.
+    Choose AMD OpenCL platform first, otherwise choose first OpenCL
+    platform.
