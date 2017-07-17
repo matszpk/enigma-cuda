@@ -306,8 +306,6 @@ bool Settings::LoadResumeFile()
 {
     try
     {
-        Clear();
-
         std::ifstream fs(RESUME_FILE_NAME);
         if (!fs)
             throw std::ifstream::failure(GetAbsolutePath(RESUME_FILE_NAME));
