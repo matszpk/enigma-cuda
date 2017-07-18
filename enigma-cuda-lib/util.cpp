@@ -94,10 +94,49 @@ string LettersAndSpacesFromText(const string & text)
 string GetAbsolutePath(const string & file_name)
 {
 #ifndef _WIN32
-        char* out = realpath(file_name.c_str(), NULL);
+        char* out = NULL;
+        out = realpath(file_name.c_str(), NULL);
+        string this_name = file_name;
+        size_t p = string::npos;
+        while (out==NULL)
+        {
+            if (this_name.empty())
+            {
+                out = realpath(".", NULL);
+                p = 0;
+            }
+            else
+            {
+                p = this_name.find_last_of('/');
+                if (p != string::npos && p != 0)
+                    this_name = this_name.substr(0, p);
+                else if (p==0)
+                {
+                    out = (char*)malloc(1);
+                    if (out != NULL)
+                        out[0] = 0;
+                    p = 0;
+                    break;
+                }
+                else
+                {
+                    this_name = ".";
+                    p = 0;
+                }
+                out = realpath(this_name.c_str(), NULL);
+            }
+        }
+        
         string outstr;
         try {
         outstr = out;
+        if (p!=string::npos) // add
+        {
+            if (file_name[p]!='/')
+                outstr += '/';
+            outstr += file_name.substr(p);
+        }
+        std::cout << "getabspath(" << file_name << ") = " << outstr << std::endl;
         } catch(...)
         { free(out); throw; }
         free(out);
