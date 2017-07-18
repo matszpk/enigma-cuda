@@ -1,8 +1,7 @@
 This binaries from code from revision:
 
-commit 6d76cf157eb13c98570df953de7aeafb0aea670e
+commit 320eaa432164aa415e82bf2489f4e2580930e2f6
 Author: matszpk <matszpk@interia.pl>
-Date:   Mon Jul 17 18:11:59 2017 +0200
+Date:   Tue Jul 18 14:09:01 2017 +0200
 
-    Choose AMD OpenCL platform first, otherwise choose first OpenCL
-    platform.
+    Remove debug info from GetAbsolutePath.
