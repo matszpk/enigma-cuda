@@ -136,7 +136,6 @@ string GetAbsolutePath(const string & file_name)
                 outstr += '/';
             outstr += file_name.substr(p);
         }
-        std::cout << "getabspath(" << file_name << ") = " << outstr << std::endl;
         } catch(...)
         { free(out); throw; }
         free(out);
