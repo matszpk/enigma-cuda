@@ -1,7 +1,9 @@
 This binaries from code from revision:
 
-commit 320eaa432164aa415e82bf2489f4e2580930e2f6
+commit a5eea25311fda24f1a9ae6f513a90f1dee1e673f
 Author: matszpk <matszpk@interia.pl>
-Date:   Tue Jul 18 14:09:01 2017 +0200
+Date:   Fri Jul 21 12:49:17 2017 +0200
 
-    Remove debug info from GetAbsolutePath.
+    Fixed behaviour when only 1 device in system and device given.
+    Initialize device in Clear method. Print more verbose info about device
+    in OpenCL version.
