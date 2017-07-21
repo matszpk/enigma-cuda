@@ -1,9 +1,8 @@
 This binaries from code from revision:
 
-commit a5eea25311fda24f1a9ae6f513a90f1dee1e673f
+commit 632c8ec89767e2fef352c7912e9a0548cb06e8dd
 Author: matszpk <matszpk@interia.pl>
-Date:   Fri Jul 21 12:49:17 2017 +0200
+Date:   Fri Jul 21 13:23:15 2017 +0200
 
-    Fixed behaviour when only 1 device in system and device given.
-    Initialize device in Clear method. Print more verbose info about device
-    in OpenCL version.
+    Formatting in printing info about device (opencl).
+
