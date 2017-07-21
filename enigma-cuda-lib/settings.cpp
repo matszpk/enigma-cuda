@@ -84,6 +84,7 @@ void Settings::Clear()
     best_score = 0;
     best_key_string = "";
     best_pluggoard_string = "";
+    device = -1; // not set
 }
 
 bool Settings::FromCommandLine(int argc, char **argv)
@@ -92,7 +93,6 @@ bool Settings::FromCommandLine(int argc, char **argv)
     int opt;
     opterr = 0;
     bool resume = false;
-    device = -1; // not set
     try
     {
         while ((opt = getopt(argc, argv, VALID_OPTIONS)) != -1)

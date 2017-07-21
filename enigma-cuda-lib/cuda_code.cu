@@ -817,39 +817,32 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 
   CUDA_CHECK(cudaGetDeviceCount(&num_devices));
 
-  switch (num_devices)
+  if (num_devices==0)
   {
-  case 0:
-    std::cerr << "GPU not found. Terminating.";
+    std::cerr << "GPU not found. Terminating." << std::endl;
     return false;
-
-  case 1:
-    break;
-
-  default:
+  }
+  
+  const char* cudadevStr = getenv("CUDADEV");
+  if (settings_device != -1)
+    best_device = settings_device;
+  else if (cudadevStr != nullptr)
+    best_device = atoi(cudadevStr);
+  else if (num_devices > 1)
   {
-    const char* cldevStr = getenv("CUDADEV");
-    if (settings_device != -1)
-      best_device = settings_device;
-    else if (cldevStr != nullptr)
-      best_device = atoi(cldevStr);
-    else // just choose
+    int max_sm = 0;
+    for (int device = 0; device < num_devices; device++)
     {
-      int max_sm = 0;
-      for (int device = 0; device < num_devices; device++)
+      CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
+      if (prop.multiProcessorCount > max_sm)
       {
-        CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
-        if (prop.multiProcessorCount > max_sm)
-        {
-          max_sm = prop.multiProcessorCount;
-          best_device = device;
-        }
+        max_sm = prop.multiProcessorCount;
+        best_device = device;
       }
     }
   }
-  }
   
-  if (best_device < 0 || size_t(best_device) >= num_devices)
+  if (best_device < 0 || best_device >= num_devices)
   {
     std::cerr << "Choosen device out of range" << std::endl;
     return false;

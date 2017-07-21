@@ -6,6 +6,7 @@
 
 #define __CLPP_CL_ABI_VERSION 101
 #define __CLPP_CL_VERSION 101
+#define __CLPP_CL_EXT 1
 
 #include <stdexcept>
 #include <iostream>
@@ -26,6 +27,10 @@
 
 #define REDUCE_MAX_THREADS 256
 #define SCRAMBLER_STRIDE 8
+
+#ifndef CL_DEVICE_BOARD_NAME_AMD
+#define CL_DEVICE_BOARD_NAME_AMD                    0x4038
+#endif
 
 // for AMD
 #define PLATFORM_VENDOR "Advanced Micro Devices, Inc."
@@ -106,7 +111,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
     std::cerr << "OpenCL platform not found. Terminating..." << std::endl;
     return false;
   }
-  size_t best_device = 0;
+  int best_device = 0;
   int platformIndex = -1;
   for (size_t i = 0;  i < platforms.size(); i++)
     if (platforms[i].getVendor()==PLATFORM_VENDOR)
@@ -123,35 +128,29 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
   const clpp::Platform& platform = platforms[platformIndex];
   const std::vector<clpp::Device> devices = platform.getGPUDevices();
 
-  switch(devices.size())
+  if (devices.empty())
   {
-    case 0:
-      std::cerr << "OpenCL device not found. Terminating..." << std::endl;
-      return false;
-    case 1:
-      break;
-    default:
+    std::cerr << "OpenCL device not found. Terminating..." << std::endl;
+    return false;
+  }
+  
+  const char* cldevStr = getenv("CLDEV");
+  if (settings_device != -1)
+    best_device = settings_device;
+  else if (cldevStr != nullptr)
+    best_device = atoi(cldevStr);
+  else if (devices.size() > 1)
+  { // just select
+    int max_cu = 0;
+    for (size_t i = 0; i < devices.size(); i++)
     {
-      const char* cldevStr = getenv("CLDEV");
-      if (settings_device != -1)
-        best_device = settings_device;
-      else if (cldevStr != nullptr)
-        best_device = atoi(cldevStr);
-      else // just select
+      const clpp::Device& device = devices[i];
+      int cusNum = device.getMaxComputeUnits();
+      if (cusNum >= max_cu)
       {
-        int max_cu = 0;
-        for (size_t i = 0; i < devices.size(); i++)
-        {
-          const clpp::Device& device = devices[i];
-          int cusNum = device.getMaxComputeUnits();
-          if (cusNum >= max_cu)
-          {
-            best_device = i;
-            max_cu = cusNum;
-          }
-        }
+        best_device = i;
+        max_cu = cusNum;
       }
-      break;
     }
   }
   if (best_device < 0 || size_t(best_device) >= devices.size())
@@ -161,7 +160,21 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
   }
   const clpp::Device& device = devices[best_device];
   if (!silent)
-    std::cout << "Found GPU " << best_device << ": '" << device.getName() << "'" << std::endl;
+  {
+    std::string boardName;
+    try
+    {
+      if (platform.getVendor() == "Advanced Micro Devices, Inc.")
+        boardName = device.getInfoString(CL_DEVICE_BOARD_NAME_AMD);
+    }
+    catch(...)
+    { }
+    
+    std::cerr << "Found GPU " << best_device << ": '" << device.getName();
+    if (!boardName.empty())
+      std::cerr << "', Board name: '" << boardName;
+    std::cerr << "', ComputeUnits: " << device.getMaxComputeUnits() << std::endl;
+  }
   oclDevice = device;
   
   /*
