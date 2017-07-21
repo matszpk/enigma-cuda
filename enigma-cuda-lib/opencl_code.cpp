@@ -173,7 +173,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
     std::cerr << "Found GPU " << best_device << ": '" << device.getName();
     if (!boardName.empty())
       std::cerr << "', Board name: '" << boardName;
-    std::cerr << "', ComputeUnits: " << device.getMaxComputeUnits() << std::endl;
+    std::cerr << "', Compute units: " << device.getMaxComputeUnits() << std::endl;
   }
   oclDevice = device;
   
