@@ -99,6 +99,15 @@ void GenerateScrambler(const Key & key)
   oclCmdQueue.enqueueNDRangeKernel(GenerateScramblerKernel, dimGrid, dimBlock).wait();
 }
 
+std::string trimSpaces(const std::string& s)
+{
+    std::string::size_type pos = s.find_first_not_of(" \n\t\r\v\f");
+    if (pos == std::string::npos)
+        return "";
+    std::string::size_type endPos = s.find_last_not_of(" \n\t\r\v\f");
+    return s.substr(pos, endPos+1-pos);
+}
+
 /*
  * OpenCL init
  */
@@ -114,11 +123,15 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
   int best_device = 0;
   int platformIndex = -1;
   for (size_t i = 0;  i < platforms.size(); i++)
-    if (platforms[i].getVendor()==PLATFORM_VENDOR)
+  {
+    std::string vendor = platforms[i].getVendor();
+    vendor = trimSpaces(vendor);
+    if (vendor==PLATFORM_VENDOR)
     {
       platformIndex = i;
       break;
     }
+  }
   if (platformIndex==-1)
   {
     std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR << ") not found.\r\n"
@@ -164,13 +177,20 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
     std::string boardName;
     try
     {
-      if (platform.getVendor() == "Advanced Micro Devices, Inc.")
+      std::string vendor = platform.getVendor();
+      vendor = trimSpaces(vendor);
+      if (vendor == "Advanced Micro Devices, Inc.")
+      {
         boardName = device.getInfoString(CL_DEVICE_BOARD_NAME_AMD);
+        boardName = trimSpaces(boardName);
+      }
     }
     catch(...)
     { }
     
-    std::cerr << "Found GPU " << best_device << ": '" << device.getName();
+    std::string deviceName = device.getName();
+    deviceName = trimSpaces(deviceName);
+    std::cerr << "Found GPU " << best_device << ": '" << deviceName;
     if (!boardName.empty())
       std::cerr << "', Board name: '" << boardName;
     std::cerr << "', Compute units: " << device.getMaxComputeUnits() << std::endl;
