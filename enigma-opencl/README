@@ -1,8 +1,8 @@
 This binaries from code from revision:
 
-commit 632c8ec89767e2fef352c7912e9a0548cb06e8dd
+commit 15ef725dddaeb9a763c751fff46a6cda6eb1b0a4
 Author: matszpk <matszpk@interia.pl>
-Date:   Fri Jul 21 13:23:15 2017 +0200
+Date:   Fri Jul 21 14:06:22 2017 +0200
 
-    Formatting in printing info about device (opencl).
+    Trimming spaces in OpenCL strings before analyzing and printing.
 
