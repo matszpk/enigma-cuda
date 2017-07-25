@@ -1,8 +1,7 @@
 This binaries from code from revision:
 
-commit 15ef725dddaeb9a763c751fff46a6cda6eb1b0a4
+commit 024c1ef945559c4901300868144c37aeada34b92
 Author: matszpk <matszpk@interia.pl>
-Date:   Fri Jul 21 14:06:22 2017 +0200
+Date:   Tue Jul 25 11:20:46 2017 +0200
 
-    Trimming spaces in OpenCL strings before analyzing and printing.
-
+    Print error and exit when no preferred platform vendor (opencl).
