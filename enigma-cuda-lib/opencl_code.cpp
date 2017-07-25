@@ -32,6 +32,7 @@
 #define CL_DEVICE_BOARD_NAME_AMD                    0x4038
 #endif
 
+#define ACCEPT_ONLY_PREFERRED_PLATFORM 1
 // for AMD
 #define PLATFORM_VENDOR "Advanced Micro Devices, Inc."
 // for NVIDIA
@@ -134,9 +135,15 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device,
   }
   if (platformIndex==-1)
   {
+#ifdef ACCEPT_ONLY_PREFERRED_PLATFORM
+    std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR <<
+          ") not found." << std::endl;
+    return false; // not found
+#else
     std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR << ") not found.\r\n"
         "Use first OpenCL platform\r\n";
     platformIndex = 0;
+#endif
   }
   const clpp::Platform& platform = platforms[platformIndex];
   const std::vector<clpp::Device> devices = platform.getGPUDevices();
