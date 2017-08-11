@@ -26,7 +26,7 @@ key.obj: ..\enigma-cuda-lib\key.cpp
         $(CXX) $(CXXFLAGS) $(CPPFLAGS) /c /Fo$@ $**
 
 opencl_code.obj: ..\enigma-cuda-lib\opencl_code.cpp
-        $(CXX) $(CXXFLAGS) $(CPPFLAGS) /c /Fo$@ $**
+        $(CXX) $(CXXFLAGS) $(CPPFLAGS) /DHAVE_OPENCL=1 /c /Fo$@ $**
 
 ngrams.obj: ..\enigma-cuda-lib\ngrams.cpp
         $(CXX) $(CXXFLAGS) $(CPPFLAGS) /c /Fo$@ $**
@@ -35,7 +35,7 @@ plugboard.obj: ..\enigma-cuda-lib\plugboard.cpp
         $(CXX) $(CXXFLAGS) $(CPPFLAGS) /c /Fo$@ $**
 
 runner.obj: ..\enigma-cuda-lib\runner.cpp
-        $(CXX) $(CXXFLAGS) $(CPPFLAGS) /c /Fo$@ $**
+        $(CXX) $(CXXFLAGS) $(CPPFLAGS) /DHAVE_OPENCL=1 /c /Fo$@ $**
 
 segmenter.obj: ..\enigma-cuda-lib\segmenter.cpp
         $(CXX) $(CXXFLAGS) $(CPPFLAGS) /c /Fo$@ $**
