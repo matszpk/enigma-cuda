@@ -188,6 +188,8 @@ kernel void GenerateScramblerKernel(const constant Wiring* d_wiring,
   }
 }
 
+#ifndef WITHOUT_CLIMB_KERNEL
+
 int ComputeScramblerIndex(int char_pos, 
   const constant ScramblerStructure* stru,
   const local RotorSettings* sett, const constant Wiring* wiring)
@@ -597,6 +599,8 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   if (lid == 0) result->score = block.score;
 }
 
+#endif
+
 inline void SelectHigherScore(private Result* a, const global Result* b, uint bindex)
 {
   if (b->score > a->score)
@@ -614,6 +618,7 @@ inline void SelectHigherScoreLocal(private Result* a, const local ResultScore* b
     a->score = b->score;
   }
 }
+
 
 kernel void FindBestResultKernel(const global Result* g_idata,
             global Result* g_odata, uint count)

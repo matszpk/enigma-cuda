@@ -49,8 +49,9 @@ struct Block
 extern void SetUpScramblerMemory();
 extern void GenerateScrambler(const Key & key);
 extern void CopyScramblerToHost(PitchedArray & dst);
-extern bool SelectGpuDevice(int req_major, int req_minor, int device,
-  bool silent, int ciphertext_length);
+
+extern void setUpConfig(int turnover_modes, int score_kinds, int cipher_length);
+extern bool SelectGpuDevice(int req_major, int req_minor, int device, bool silent);
 extern void CipherTextToDevice(string ciphertext_string);
 extern void NgramsToDevice(const string & uni_filename,        
   const string & bi_filename, const string & tri_filename);
@@ -58,7 +59,7 @@ extern void OrderToDevice(const int8_t * order);
 extern void PlugboardStringToDevice(string plugboard_string);
 extern void PlugboardToDevice(const Plugboard & plugboard);
 extern void SetUpResultsMemory(int count);
-extern void InitializeArrays(const string cipher_string, int turnover_modes,        
+extern void InitializeArrays(const string cipher_string, int turnover_modes,
   int score_kinds, int digits = 3);
 extern Result Climb(int cipher_length, const Key & key, bool single_key);
 extern Result GetBestResult(int count);
@@ -73,5 +74,7 @@ int8_t mod26(const int16_t x);
 
 extern unsigned char ___enigma_cuda_lib_opencl_program_cl[];
 extern unsigned int ___enigma_cuda_lib_opencl_program_cl_len;
+extern unsigned char ___enigma_cuda_lib_climb_clrx[];
+extern unsigned int ___enigma_cuda_lib_climb_clrx_len;
 
 };

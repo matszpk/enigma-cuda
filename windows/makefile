@@ -1,16 +1,20 @@
 CXX = cl
 CLINCDIR = "c:\Program Files (x86)\AMD APP SDK\3.0\include"
 CLLIBDIR = "c:\Program Files (x86)\AMD APP SDK\3.0\lib\x86_64"
+CLRXINCDIR = "c:\matfiles\usr\include"
+CLRXLIBDIR = "c:\matfiles\usr\lib"
 XXD = "c:\Program Files (x86)\Vim\vim74\xxd"
-CXXFLAGS =  /EHsc /W1 /O2 /I$(CLINCDIR) /I..\enigma-cuda-lib /I..\clpp
+CXXFLAGS =  /EHsc /W1 /O2 /I$(CLINCDIR) /I$(CLRXINCDIR) /I..\enigma-cuda-lib /I..\clpp
+CLRXLIBS = $(CLRXLIBDIR)\CLRXAmdAsmStatic.lib $(CLRXLIBDIR)\CLRXAmdBinStatic.lib \
+        $(CLRXLIBDIR)\CLRXUtilsStatic.lib
 
 all: enigma-opencl.exe
 
 ENIGMA_OBJS = enigma-cuda.obj ini_file.obj iterator.obj key.obj ngrams.obj opencl_code.obj plugboard.obj \
-		runner.obj segmenter.obj settings.obj util.obj wiring.obj opencl_program_data.obj
+		runner.obj segmenter.obj settings.obj util.obj wiring.obj opencl_program_data.obj climb_clrx_data.obj
 
 enigma-opencl.exe: $(ENIGMA_OBJS)
-        $(CXX) $(CXXFLAGS) /Feenigma-opencl.exe $** $(CLLIBDIR)\OpenCL.lib user32.lib
+        $(CXX) $(CXXFLAGS) /Feenigma-opencl.exe $** $(CLRXLIBS) $(CLLIBDIR)\OpenCL.lib shell32.lib user32.lib
 
 
 enigma-cuda.obj: ..\enigma-cuda\enigma-cuda.cpp
@@ -52,5 +56,8 @@ wiring.obj: ..\enigma-cuda-lib\wiring.cpp
 opencl_program_data.c: ..\enigma-cuda-lib\opencl_program.cl
         $(XXD) -i $** $@
 
+climb_clrx_data.c: ..\enigma-cuda-lib\climb.clrx
+	$(XXD) -i $** $@
+
 clean:
-        del enigma-opencl.exe *.obj opencl_program_data.c
+        del enigma-opencl.exe *.obj opencl_program_data.c climb_clrx_data.c

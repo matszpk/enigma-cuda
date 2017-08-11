@@ -39,10 +39,12 @@ bool Runner::Initialize(int max_length)
       ciphertext = LoadTextFromFile(settings.ciphertext_file_name);
       ciphertext = LettersFromText(ciphertext);
       ciphertext = ciphertext.substr(0, max_length);
+      
 
 #ifdef HAVE_OPENCL
+      setUpConfig(settings.turnover_modes, settings.score_kinds, ciphertext.size());
       // we need ciphertext before building OpenCL code
-      if (!SelectGpuDevice(2, 0, settings.device, silent, ciphertext.size())) return false;
+      if (!SelectGpuDevice(2, 0, settings.device, silent)) return false;
 #endif
 
       length = (int)ciphertext.length();
