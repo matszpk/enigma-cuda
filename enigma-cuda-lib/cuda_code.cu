@@ -590,7 +590,7 @@ __global__ void ClimbKernel(const Task task)
     sett.r_mesg = (gridDim.x > 1) ? blockIdx.x % ALPSIZE : d_key.sett.r_mesg;
 
     //element of results[] to store the output 
-    int linear_idx = blockIdx.z * ALPSIZE_TO2 + blockIdx.y * ALPSIZE + blockIdx.x;
+    int linear_idx = blockIdx.y * gridDim.x + blockIdx.x;
     result = &task.results[linear_idx];
     result->index = linear_idx;
     result->score = -1;
@@ -695,22 +695,9 @@ void SetUpResultsMemory(int count)
   CUDA_CHECK(cudaMalloc((void**)&h_task.results, count * sizeof(Result)));
 }
 
-__device__ void SelectHigherScore0(Result & a, const Result & b, unsigned int bindex)
-{
-  if (b.score > a.score)
-  {
-    a.index = bindex;
-    a.score = b.score;
-  }
-}
-
 __device__ void SelectHigherScore(Result & a, const Result & b)
 {
-  if (b.score > a.score)
-  {
-    a.index = b.index;
-    a.score = b.score;
-  }
+  if (b.score > a.score) a = b;
 }
 
 __global__ void FindBestResultKernel(Result *g_idata, Result *g_odata, 
@@ -719,37 +706,21 @@ __global__ void FindBestResultKernel(Result *g_idata, Result *g_odata,
   __shared__ Result sdata[REDUCE_MAX_THREADS];
 
   unsigned int tid = threadIdx.x;
-  unsigned int i = blockIdx.x*(blockDim.x * 2) + threadIdx.x;
+  unsigned int i = blockIdx.x * (blockDim.x * 2) + tid;
 
-  Result best_pair;
-  if (i < count)
-  {
-    best_pair.index = i;
-    best_pair.score = g_idata[i].score;
-  }
-  else
-  {
-    best_pair.index = count - 1;
-    best_pair.score = g_idata[count-1].score;
-  }
+  if (i < count) sdata[tid] = g_idata[i];
+  else sdata[tid].score = 0;
+  if (i + blockDim.x < count) SelectHigherScore(sdata[tid], g_idata[i + blockDim.x]);
 
-  if (i + blockDim.x < count)
-    SelectHigherScore0(best_pair, g_idata[i + blockDim.x], i + blockDim.x);
-
-  sdata[tid] = best_pair;
   __syncthreads();
 
   for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1)
   {
-    if (tid < s)
-    {
-      SelectHigherScore(best_pair, sdata[tid + s]);
-      sdata[tid] = best_pair;
-    }
+    if (tid < s) SelectHigherScore(sdata[tid], sdata[tid + s]);
     __syncthreads();
   }
 
-  if (tid == 0) g_odata[blockIdx.x] = g_idata[best_pair.index];
+  if (tid == 0) g_odata[blockIdx.x] = sdata[0];
 }
 
 unsigned int nextPow2(unsigned int x)
