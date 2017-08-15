@@ -2242,6 +2242,18 @@ tryswapstopic: s_endpgm
             s_mov_b32 lastGroupLane[0], 0
             s_mov_b32 lastGroupLane[1], 1<<31
         .endif
+    .else
+        SRegAlloc2A lastWaveLane
+        .ifgt TASK_SIZE-64
+            SRegAlloc2A firstGroupLane
+            s_mov_b32 lastWaveLane[0], 0
+            s_mov_b32 lastWaveLane[1], 1<<31
+            v_cmp_eq_u32 firstGroupLane, 0, lid
+        .else
+            firstGroupLane = 1
+            s_mov_b32 lastWaveLane[0], 0
+            s_mov_b32 lastWaveLane[1], 1<<31
+        .endif
     .endif
     
     
@@ -2328,7 +2340,7 @@ CUR_SCORE_KIND = skUnigram
             .ifge ARCH-GCN12
                 s_mov_b64       exec, lastGroupLane  # enable 63th lane in group
             .else
-                s_mov_b64       exec, 1
+                s_mov_b64       exec, firstGroupLane
             .endif
             s_cbranch_execz Unisumskip\@
         .endif
@@ -2536,7 +2548,7 @@ BigramSkip2_\@:
             .ifge ARCH-GCN12
                 s_mov_b64       exec, lastGroupLane  # enable 63th lane in group
             .else
-                s_mov_b64       exec, 1
+                s_mov_b64       exec, firstGroupLane
             .endif
             s_cbranch_execz Bisumskip\@
         .else
@@ -2783,7 +2795,7 @@ TrigramSkip2_\@:
             .ifge ARCH-GCN12
                 s_mov_b64       exec, lastGroupLane  # enable 63th lane in group
             .else
-                s_mov_b64       exec, 1
+                s_mov_b64       exec, firstGroupLane
             .endif
             s_cbranch_execz Trisumskip\@
         .else
