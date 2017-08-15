@@ -1877,6 +1877,8 @@ toProcess:
         s_buffer_load_dword d_fixed, constBuf1Res, SMUL*d_fixed_arg
     .endif
         s_waitcnt lgkmcnt(0) & vmcnt(0)
+        # LocalTemps/LocalScoreBuf condition race fix
+        Barrier
         
     /*
      ********************************************
