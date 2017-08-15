@@ -985,8 +985,6 @@ skipFeedToLds:
         SRegAlloc1 l_mesg
         SRegAlloc1 m_mesg
         SRegAlloc1 r_mesg
-        s_load_dwordx2 mr_ring, d_key, (Key.sett.m_ring>>2)*SMUL
-        s_load_dword g_mesg, d_key, (Key.sett.g_mesg>>2)*SMUL
         sett.m_ring = %mr_ring[0]
         sett.r_ring = %mr_ring[1]
         /* sett.l_mesg = (gxnum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key->sett.l_mesg;
@@ -1089,6 +1087,9 @@ skipFeedToLds:
         s_cbranch_vccz skipOneWave
     .endif
     
+        s_load_dwordx2 mr_ring, d_key, (Key.sett.m_ring>>2)*SMUL
+        s_load_dword g_mesg, d_key, (Key.sett.g_mesg>>2)*SMUL
+        
         s_cmp_le_u32 gxnum, 1
         s_cbranch_scc1 gxnumLe1
         # divide by ALPSIZE, and modulo
