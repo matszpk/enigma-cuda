@@ -610,8 +610,17 @@ skIC = 1; skUnigram = 2; skBigram = 4; skTrigram = 8; skWords = 16
 
 ResultSize = 8+28
 
+.if DEBUG_PART==4 && (skTrigram&SCORE_KINDS)==0
+    .error "TriScore Test requires enabled skTrigram"
+.endif
 .if DEBUG_PART==3 && (skBigram&SCORE_KINDS)==0
     .error "BiScore Test requires enabled skBigram"
+.endif
+.if DEBUG_PART==2 && (skUnigram&SCORE_KINDS)==0
+    .error "UniScore Test requires enabled skUnigram"
+.endif
+.if DEBUG_PART==1 && (skIC&SCORE_KINDS)==0
+    .error "ICScore Test requires enabled skIC"
 .endif
 
 ####
