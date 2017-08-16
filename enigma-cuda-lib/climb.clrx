@@ -1862,7 +1862,7 @@ toProcess:
         RegFree d_order
         RegFree d_order_res
     .endif
-        s_waitcnt vmcnt(2)
+        s_waitcnt vmcnt(3)
         
         s_mov_b64 exec, taskSizeExec
     
@@ -1870,7 +1870,7 @@ toProcess:
         ds_write2_b32 dsoffset, tmpv0_4[2], tmpv0_4[3] \
                     offset0:SCRAMBLER_STRIDE*2  offset1:SCRAMBLER_STRIDE*3
         
-        s_waitcnt vmcnt(1)
+        s_waitcnt vmcnt(2)
         ds_write2_b32 dsoffset, tmpv1_3[0], tmpv1_3[1] \
                     offset0:SCRAMBLER_STRIDE*4 offset1:SCRAMBLER_STRIDE*5
         ds_write_b32 dsoffset, tmpv1_3[2] offset:SCRAMBLER_STRIDE*4*6
@@ -2300,7 +2300,6 @@ CUR_SCORE_KIND = skUnigram
         ds_read_b32 vone, cv offset:LocalUnigrams
         s_waitcnt lgkmcnt(0)
         
-        Barrier
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
             s_nop 1
@@ -2503,7 +2502,6 @@ CUR_SCORE_KIND = skBigram
         .endif
         s_waitcnt vmcnt(0)
 BigramSkip\@:
-        Barrier
         
     .if (TASK_SIZE&63)<=1 && (TASK_SIZE&63)!=0
         s_cbranch_execz BigramSkip2_\@
@@ -2747,7 +2745,6 @@ CUR_SCORE_KIND = skTrigram
         .endif
         s_waitcnt vmcnt(0)
 TrigramSkip\@:
-        Barrier
     /*.if DEBUG
         DUMP_VREG vone
     .endif*/
