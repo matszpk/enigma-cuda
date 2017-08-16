@@ -2474,7 +2474,7 @@ CUR_SCORE_KIND = skBigram
         
         v_cmpx_gt_u32 vcc, TASK_SIZE-1, lid 
     .if (TASK_SIZE&63)<=1 && (TASK_SIZE&63)!=0
-        s_cbranch_execz BigramSkip\@
+        s_cbranch_execz BigramSkip2_\@
     .endif
         /* if (lid < (block->count - 1))
             block->score_buf[lid] = 
@@ -2501,11 +2501,6 @@ CUR_SCORE_KIND = skBigram
             .endif
         .endif
         s_waitcnt vmcnt(0)
-BigramSkip\@:
-        
-    .if (TASK_SIZE&63)<=1 && (TASK_SIZE&63)!=0
-        s_cbranch_execz BigramSkip2_\@
-    .endif
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
             s_nop 1
@@ -2711,7 +2706,7 @@ CUR_SCORE_KIND = skTrigram
         
         v_cmpx_gt_u32 vcc, TASK_SIZE-2, lid
     .if (TASK_SIZE&63)<=2 && (TASK_SIZE&63)!=0
-        s_cbranch_execz TrigramSkip\@
+        s_cbranch_execz TrigramSkip2_\@
     .endif
         
         ds_read_i8 cvaddr, lid offset:LocalPlainText+1
@@ -2744,13 +2739,9 @@ CUR_SCORE_KIND = skTrigram
             .endif
         .endif
         s_waitcnt vmcnt(0)
-TrigramSkip\@:
     /*.if DEBUG
         DUMP_VREG vone
     .endif*/
-    .if (TASK_SIZE&63)<=2 && (TASK_SIZE&63)!=0
-        s_cbranch_execz TrigramSkip2_\@
-    .endif
         
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
