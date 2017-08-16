@@ -2204,17 +2204,17 @@ IcScoreMainLoop:
         s_sub_u32 loopi_s, loopi_s, 1
         s_cbranch_scc0 IcScoreMainLoop
     # last loop iters
-    .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
-        TrySwap IcScore
-        
-        s_add_u32 q_s, q_s, 1
-        s_cmp_eq_u32 q_s, ALPSIZE
-        s_cbranch_scc0 0f
-        s_add_u32 p_s, p_s, 1
-        s_add_u32 q_s, p_s, 1
-0:
-    .endr
     .if (LOOP_ITERS_NUM % UNROLL_SIZE)
+        .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
+            TrySwap IcScore
+            
+            s_add_u32 q_s, q_s, 1
+            s_cmp_eq_u32 q_s, ALPSIZE
+            s_cbranch_scc0 0f
+            s_add_u32 p_s, p_s, 1
+            s_add_u32 q_s, p_s, 1
+0:
+        .endr
         TrySwap IcScore
     .endif
     .ifeq DEBUG_PART-1
@@ -2395,18 +2395,18 @@ UniScoreMainLoop:
         s_sub_u32 loopi_s, loopi_s, 1
         s_cbranch_scc0 UniScoreMainLoop
     # last loop iters
-    .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
-        TrySwap UniScore
-        
-        s_add_u32 q_s, q_s, 1
-        s_cmp_eq_u32 q_s, ALPSIZE
-        s_cbranch_scc0 0f
-        s_add_u32 p_s, p_s, 1
-        s_add_u32 q_s, p_s, 1
-0:
-    .endr
     .if (LOOP_ITERS_NUM % UNROLL_SIZE)
-        TrySwap UniScore
+        .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
+            TrySwap UniScore
+            
+            s_add_u32 q_s, q_s, 1
+            s_cmp_eq_u32 q_s, ALPSIZE
+            s_cbranch_scc0 0f
+            s_add_u32 p_s, p_s, 1
+            s_add_u32 q_s, p_s, 1
+0:
+        .endr
+            TrySwap UniScore
     .endif
     .ifeq DEBUG_PART-2
     .if DEBUG
@@ -2608,17 +2608,17 @@ BiScoreMainLoop:
         s_sub_u32 loopi_s, loopi_s, 1
         s_cbranch_scc0 BiScoreMainLoop
     # last loop iters
-    .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
-        TrySwap BiScore
-        
-        s_add_u32 q_s, q_s, 1
-        s_cmp_eq_u32 q_s, ALPSIZE
-        s_cbranch_scc0 0f
-        s_add_u32 p_s, p_s, 1
-        s_add_u32 q_s, p_s, 1
-0: 
-    .endr
     .if (LOOP_ITERS_NUM % UNROLL_SIZE)
+        .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
+            TrySwap BiScore
+            
+            s_add_u32 q_s, q_s, 1
+            s_cmp_eq_u32 q_s, ALPSIZE
+            s_cbranch_scc0 0f
+            s_add_u32 p_s, p_s, 1
+            s_add_u32 q_s, p_s, 1
+0:
+        .endr
         TrySwap BiScore
     .endif
     .ifeq DEBUG_PART-3
@@ -2871,17 +2871,17 @@ TriScoreMainLoop:
         s_sub_u32 loopi_s, loopi_s, 1
         s_cbranch_scc0 TriScoreMainLoop
     # last loop iters
-    .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
-        TrySwap TriScore
-        
-        s_add_u32 q_s, q_s, 1
-        s_cmp_eq_u32 q_s, ALPSIZE
-        s_cbranch_scc0 0f
-        s_addc_u32 p_s, p_s, 0
-        s_add_u32 q_s, p_s, 1
-0:
-    .endr
     .if (LOOP_ITERS_NUM % UNROLL_SIZE)
+        .rept (LOOP_ITERS_NUM % UNROLL_SIZE)-1
+            TrySwap TriScore
+            
+            s_add_u32 q_s, q_s, 1
+            s_cmp_eq_u32 q_s, ALPSIZE
+            s_cbranch_scc0 0f
+            s_addc_u32 p_s, p_s, 0
+            s_add_u32 q_s, p_s, 1
+0:
+        .endr
         TrySwap TriScore
     .endif
     /*.if DEBUG
