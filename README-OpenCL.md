@@ -16,7 +16,8 @@ Radeon Rx 400/VEGA and later).
 ## Assembly optimizations
 
 This version introduces an assembly's optimization for GCN 1.0/1.1/1.2 architecture.
-It requires the CLRadeonExtender libraries.
+It requires the CLRadeonExtender libraries. We recommend to use the latest
+CLRadeonExtender version from repository (trunk/master).
 
 ## Building
 
