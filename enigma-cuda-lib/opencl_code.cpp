@@ -35,9 +35,9 @@
 #define CL_DEVICE_BOARD_NAME_AMD                    0x4038
 #endif
 
-//#define DEBUG_CLIMB 0
+//#define DEBUG_CLIMB 1
 #define DEBUG_DUMP 0
-#define DEBUG_RESULTS 0
+//#define DEBUG_RESULTS 1
 
 #define ACCEPT_ONLY_PREFERRED_PLATFORM 1
 // for AMD
@@ -228,6 +228,7 @@ void GenerateScramblerKernelHost(dim3 blockIdx, dim3 threadIdx)
 void GenerateScrambler(const Key & key)
 {
 #ifdef DEBUG_CLIMB
+  std::cout << "\nGenerateScrambler call\n" << std::endl;
   { // clear buffer before generating
     clpp::BufferMapping mapping(oclCmdQueue, scramblerDataBuffer, true, CL_MAP_WRITE,
                         0, scramblerDataPitch*ALPSIZE_TO3);
@@ -268,8 +269,10 @@ static int OpenCL_cipher_length = 0;
 
 void setUpConfig(int turnover_modes, int score_kinds, int cipher_length)
 {
+#ifdef DEBUG_CLIMB
   std::cout << "turnover_modes: " << turnover_modes << ", score_kinds: " <<
           score_kinds << std::endl;
+#endif
   OpenCL_turnover_modes = turnover_modes;
   OpenCL_score_kinds = score_kinds;
   OpenCL_cipher_length = cipher_length;
@@ -336,7 +339,7 @@ static bool prepareAssemblyOfClimbKernel()
   }
   {
     ArrayIStream astream(asmSourceSize, asmSource);
-    Assembler assembler("", astream, 0, binaryFormat, devType);
+    Assembler assembler("", astream, 0, binaryFormat, devType, std::cerr, std::cerr);
     assembler.set64Bit(bits==64);
     assembler.setDriverVersion(amdappVersion);
     assembler.addInitialDefSym("SCRAMBLER_PITCH", (28 + 15) & ~size_t(15));
@@ -464,9 +467,9 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   }
   oclDevice = device;
   
-  std::cout << "CipherLength: " << OpenCL_cipher_length << std::endl;
   
 #ifdef DEBUG_CLIMB
+  std::cout << "CipherLength: " << OpenCL_cipher_length << std::endl;
   {
     const char* debugPartStr = getenv("ECLIMB_DEBUG_PART");
     if (debugPartStr!=NULL && *debugPartStr!=0)
@@ -1341,17 +1344,29 @@ void ClimbKernelHost(dim3 gridDim, size_t blockDim, dim3 blockIdx)
 
 static int callClimbNo = 0;
 
+static int best_score = 0;
+
+#define PER_CLIMB_CALL 1
+
 #endif
 
 
 Result Climb(int cipher_length, const Key & key, bool single_key)
 {
 #ifdef DEBUG_CLIMB
-  std::cout << "\n\nCall climb no " << callClimbNo << std::endl;
+#if !defined(PER_CLIMB_CALL) || PER_CLIMB_CALL<=1
+  bool doDebugClimb = true;
+#else
+  bool doDebugClimb = (callClimbNo % PER_CLIMB_CALL)==PER_CLIMB_CALL-1;
+#endif
+  if (doDebugClimb)
+    std::cout << "\n\nCall climb no " << callClimbNo << std::endl;
 #endif
   
   oclCmdQueue.enqueueWriteBuffer(d_keyBuffer, 0, sizeof(Key), &key);
 #ifdef DEBUG_CLIMB
+  if (doDebugClimb)
+  {
   ::memset(shared_scrambling_table, 0, sizeof shared_scrambling_table);
   task.count = OpenCL_cipher_length;
   d_key = key;
@@ -1377,6 +1392,7 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
   }
   ::memset(expectedVRegs, 0, sizeof(cl_uint)*ALPSIZE_TO3*CLRX_GroupSize*3);
   #endif
+  }
 #endif
   int grid_size = single_key ? 1 : ALPSIZE_TO3;
   int block_size = std::max(32, cipher_length);
@@ -1396,6 +1412,8 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
     oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, workSize[0], localSize[0]);
   
 #ifdef DEBUG_CLIMB
+  if (doDebugClimb)
+  {
   // call for comparison
   dim3 blockDim { block_size, 1, 1 };
   dim3 gridDim { grid_size, 1, 1 };
@@ -1521,17 +1539,126 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
     }
   }
   #endif
-  callClimbNo++;
   if (error)
   {
-    std::cerr << "Have some errors!" << std::endl;
+    std::cerr << "Have some errors in Climb call " << callClimbNo << "!" << std::endl;
+    std::cerr << "key = Key{\n  { EnigmaModel(" << int(key.stru.model) << "),\n"
+                 "    ReflectorType(" << int(key.stru.ukwnum) << "),\n"
+                 "    RotorType(" << int(key.stru.g_slot) << "),\n"
+                 "    RotorType(" << int(key.stru.l_slot) << "),\n"
+                 "    RotorType(" << int(key.stru.m_slot) << "),\n"
+                 "    RotorType(" << int(key.stru.r_slot) << ") },\n"
+                 "  { " << key.sett.g_ring << ", " << key.sett.l_ring << ", " <<
+                 key.sett.m_ring << ", " << key.sett.r_ring << ",\n"
+                 "    " << key.sett.g_mesg << ", " << key.sett.l_mesg << ", " <<
+                 key.sett.m_mesg << ", " << key.sett.r_mesg << " } };\n";
+          //int8_t reflectors[REFLECTOR_TYPE_CNT][ALPSIZE];
+	//int8_t rotors[ROTOR_TYPE_CNT][ALPSIZE];
+	//int8_t reverse_rotors[ROTOR_TYPE_CNT][ALPSIZE];
+	//int8_t notch_positions[ROTOR_TYPE_CNT][2];
+    std::cerr << "wiring = {\n  {\n";
+    for (int i = 0; i < REFLECTOR_TYPE_CNT; i++)
+    {
+      std::cerr << "    { ";
+      for (int j = 0; j < ALPSIZE; j++)
+        std::cerr << int(wiring.reflectors[i][j]) << (j+1<ALPSIZE ? ", ": " }");
+      std::cerr << (i+1<REFLECTOR_TYPE_CNT ? ",\n" : " },\n");
+    }
+    std::cerr << "  {\n";
+    for (int i = 0; i < ROTOR_TYPE_CNT; i++)
+    {
+      std::cerr << "    { ";
+      for (int j = 0; j < ALPSIZE; j++)
+        std::cerr << int(wiring.rotors[i][j]) << (j+1<ALPSIZE ? ", ": " }");
+      std::cerr << (i+1<ROTOR_TYPE_CNT ? ",\n" : " },\n");
+    }
+    std::cerr << "  {\n";
+    for (int i = 0; i < ROTOR_TYPE_CNT; i++)
+    {
+      std::cerr << "    { ";
+      for (int j = 0; j < ALPSIZE; j++)
+        std::cerr << int(wiring.reverse_rotors[i][j]) << (j+1<ALPSIZE ? ", ": " }");
+      std::cerr << (i+1<ROTOR_TYPE_CNT ? ",\n" : " },\n");
+    }
+    std::cerr << "  {\n";
+    for (int i = 0; i < ROTOR_TYPE_CNT; i++)
+    {
+      std::cerr << "    { ";
+      for (int j = 0; j < 2; j++)
+        std::cerr << int(wiring.notch_positions[i][j]) << (j+1<2 ? ", ": " }");
+      std::cerr << (i+1<ROTOR_TYPE_CNT ? ",\n" : " }\n");
+    }
+    std::cerr << " }\n};\n";
+    std::cerr << "scramblerData = {\n";
+    for (int i = 0; i < ALPSIZE_TO3; i++)
+    {
+      for (int j = 0; j < ALPSIZE; j++)
+        std::cerr << int(task.scrambler.data[task.scrambler.pitch*i + j]) <<
+            (j+1<ALPSIZE ? ", " : ",\n");
+    }
+    std::cerr << "};\n";
+    if (OpenCL_score_kinds & skUnigram)
+    {
+      std::cerr << "unigrams = { ";
+      for (int i = 0; i < ALPSIZE; i++)
+        std::cerr << d_unigrams[i] << ((i&7)!=7 ? ", " : ",\n");
+      std::cerr << "};\n";
+    }
+    if (OpenCL_score_kinds & skBigram)
+    {
+      std::cerr << "bigrams = { ";
+      for (int i = 0; i < ALPSIZE_TO2; i++)
+        std::cerr << d_bigrams[i] << ((i&7)!=7 ? ", " : ",\n");
+      std::cerr << "};\n";
+    }
+    if (OpenCL_score_kinds & skTrigram)
+    {
+      std::cerr << "trigrams = { ";
+      const int* trigs = (const int*)task.trigrams.data;
+      for (int i = 0; i < ALPSIZE_TO3; i++)
+        std::cerr << trigs[i] << ((i&7)!=7 ? ", " : ",\n");
+      std::cerr << "};\n";
+    }
+    std::cerr << "d_plugs = { ";
+    for (int i = 0; i < ALPSIZE; i++)
+      std::cerr << int(d_plugs[i]) << ((i&31)!=31 ? ", " : ",\n");
+    std::cerr << "};\n";
+    std::cerr << "d_order = { ";
+    for (int i = 0; i < ALPSIZE; i++)
+      std::cerr << int(d_order[i]) << ((i&15)!=15 ? ", " : ",\n");
+    std::cerr << "};\n";
+    std::cerr << "d_fixed = { ";
+    for (int i = 0; i < ALPSIZE; i++)
+      std::cerr << int(d_fixed[i]) << ((i&15)!=15 ? ", " : ",\n");
+    std::cerr << "};\n";
+    std::cerr << "d_ciphertext = { ";
+    for (int i = 0; i < OpenCL_cipher_length; i++)
+      std::cerr << int(d_ciphertext[i]) << ((i&15)!=15 ? ", " : ",\n");
+    std::cerr << "};\n";
+    std::cerr << "score_kinds = " << int(OpenCL_score_kinds) << ";\n";
+    std::cerr << "turnover_modes = " << int(OpenCL_turnover_modes) << ";\n";
+    std::cerr.flush();
     ::exit(1);
   }
+  callClimbNo++;
+  Result ret = GetBestResult(ALPSIZE_TO3);
+  best_score = std::max(ret.score, best_score);
+  std::cout << "Best score: " << best_score << std::endl;
   if (debugPart!=-1)
     ::exit(0); // stop when is not full test
   // allow next call if full test
-#endif
+  return ret;
+  }
+  else
+  {
+    Result ret = GetBestResult(ALPSIZE_TO3);
+    callClimbNo++;
+    best_score = std::max(ret.score, best_score);
+    return ret;
+  }
+#else
   return GetBestResult(ALPSIZE_TO3);
+#endif
 }
 
 unsigned int nextPow2(unsigned int x)
