@@ -295,9 +295,6 @@ static bool prepareAssemblyOfClimbKernel()
   catch(const CLRX::Exception& ex)
   { return false; }
   GPUArchitecture arch = getGPUArchitectureFromDeviceType(devType);
-  // TODO: comment when code will be prepared for RX VEGA
-  if (int(arch) > int(GPUArchitecture::GCN1_2))
-    return false; // VEGA not supported
   
   bool useCL1 = false;
   {

@@ -368,6 +368,46 @@ __VREG_POOL_COUNT = 256
     .endif
 .endm
 
+.ifge ARCH-GCN14
+    .macro VADD_U32 dest, cdest, src0, src1, mods:vararg
+        v_add_co_u32 \dest, \cdest, \src0, \src1 \mods
+    .endm
+    .macro VADDC_U32 dest, cdest, src0, src1, csrc, mods:vararg
+        v_addc_co_u32 \dest, \cdest, \src0, \src1, \csrc \mods
+    .endm
+    .macro VSUB_U32 dest, cdest, src0, src1, mods:vararg
+        v_sub_co_u32 \dest, \cdest, \src0, \src1 \mods
+    .endm
+    .macro VSUBB_U32 dest, cdest, src0, src1, csrc, mods:vararg
+        v_subb_co_u32 \dest, \cdest, \src0, \src1, \csrc \mods
+    .endm
+    .macro VSUBREV_U32 dest, cdest, src0, src1, mods:vararg
+        v_subrev_co_u32 \dest, \cdest, \src0, \src1 \mods
+    .endm
+    .macro VSUBBREV_U32 dest, cdest, src0, src1, csrc, mods:vararg
+        v_subbrev_co_u32 \dest, \cdest, \src0, \src1, \csrc \mods
+    .endm
+.else
+    .macro VADD_U32 dest, cdest, src0, src1, mods:vararg
+        v_add_u32 \dest, \cdest, \src0, \src1 \mods
+    .endm
+    .macro VADDC_U32 dest, cdest, src0, src1, csrc, mods:vararg
+        v_addc_u32 \dest, \cdest, \src0, \src1, \csrc \mods
+    .endm
+    .macro VSUB_U32 dest, cdest, src0, src1, mods:vararg
+        v_sub_u32 \dest, \cdest, \src0, \src1 \mods
+    .endm
+    .macro VSUBB_U32 dest, cdest, src0, src1, csrc, mods:vararg
+        v_subb_u32 \dest, \cdest, \src0, \src1, \csrc \mods
+    .endm
+    .macro VSUBREV_U32 dest, cdest, src0, src1, mods:vararg
+        v_subrev_u32 \dest, \cdest, \src0, \src1 \mods
+    .endm
+    .macro VSUBBREV_U32 dest, cdest, src0, src1, csrc, mods:vararg
+        v_subbrev_u32 \dest, \cdest, \src0, \src1, \csrc \mods
+    .endm
+.endif
+
 ####
 # debug stuff
 ####
@@ -423,7 +463,7 @@ WAVEFRONT_SIZE = (TASK_SIZE+63) & ~63
     .else
         VRegAlloc1 globalId
         s_mul_i32 gid, WAVEFRONT_SIZE, gid
-        v_add_u32 globalId, vcc, gid, lid
+        VADD_U32 globalId, vcc, gid, lid
         v_mul_lo_u32 globalId, 4*\regsNum, globalId
     .endif
     
@@ -547,6 +587,8 @@ PRINT_INFO = 1
         .print "GCN version: GCN 1.1"
     .elseifarch gcn1.2
         .print "GCN version: GCN 1.2"
+    .elseifarch gcn1.4
+        .print "GCN version: GCN 1.4"
     .endif
     
     .if DEBUG
@@ -671,7 +713,11 @@ USE_LOCAL_IN_TRYSWAP = 1
         
     SRegAlloc2At setupPtr, 4
     SRegAlloc2At argsPtr, 6
-    SRegAlloc1At gid, 8
+    .ifge ARCH-GCN14
+        SRegAlloc1At gid, 10
+    .else
+        SRegAlloc1At gid, 8
+    .endif
     .if32
         d_wiring_arg = 6
         d_key_arg = 7
@@ -714,7 +760,11 @@ USE_LOCAL_IN_TRYSWAP = 1
         .endif
     .endif
         
+    .ifge ARCH-GCN14
+        sgprUserNum = 10
+    .else
         sgprUserNum = 8
+    .endif
         freeSgprUser = 4    # scratch buffer not used
     .elseiffmt amd
         .uavid 11
@@ -889,15 +939,15 @@ USE_LOCAL_IN_TRYSWAP = 1
             buffer_load_sbyte plugunigram[0], lid, bufres, d_plugs offen
             buffer_load_dword plugunigram[1], lid4, bufres, d_unigrams offen
         .else
-            v_add_u32 plugunigram[0], vcc, d_plugs[0], lid
+            VADD_U32 plugunigram[0], vcc, d_plugs[0], lid
             v_mov_b32 plugunigram[1], d_plugs[1]
-            v_addc_u32 plugunigram[1], vcc, 0, plugunigram[1], vcc
+            VADDC_U32 plugunigram[1], vcc, 0, plugunigram[1], vcc
             flat_load_sbyte plugunigram[0], plugunigram
             
             VRegAlloc2 tmpaddr
-            v_add_u32 tmpaddr[0], vcc, d_unigrams[0], lid4
+            VADD_U32 tmpaddr[0], vcc, d_unigrams[0], lid4
             v_mov_b32 tmpaddr[1], d_unigrams[1]
-            v_addc_u32 tmpaddr[1], vcc, 0, tmpaddr[1], vcc
+            VADDC_U32 tmpaddr[1], vcc, 0, tmpaddr[1], vcc
             flat_load_dword plugunigram[1], tmpaddr
             RegFree tmpaddr
         .endif
@@ -1020,8 +1070,8 @@ skipFeedToLds:
         v_mov_b32 tmp2, 5162220           # 1/26*(1<<27)
         v_mul_i32_i24 tmp1, \x, tmp2
         v_mul_hi_i32_i24 tmp2, \x, tmp2
-        v_add_u32 tmp1, vcc, 2581110, tmp1
-        v_addc_u32 tmp2, vcc, 0, tmp2, vcc
+        VADD_U32 tmp1, vcc, 2581110, tmp1
+        VADDC_U32 tmp2, vcc, 0, tmp2, vcc
         v_alignbit_b32 tmp1, tmp2, tmp1, 27
         v_readfirstlane_b32 \y, tmp1
         RegFree tmp1
@@ -1034,8 +1084,8 @@ skipFeedToLds:
         v_mov_b32 tmp2, \const1           # 1/26*(1<<27)
         v_mul_i32_i24 tmp1, \x, tmp2
         v_mul_hi_i32_i24 tmp2, \x, tmp2
-        v_add_u32 tmp1, vcc, \const2, tmp1
-        v_addc_u32 tmp2, vcc, 0, tmp2, vcc
+        VADD_U32 tmp1, vcc, \const2, tmp1
+        VADDC_U32 tmp2, vcc, 0, tmp2, vcc
         v_alignbit_b32 tmp1, tmp2, tmp1, 31
         v_readfirstlane_b32 \y, tmp1
         RegFree tmp1
@@ -1048,8 +1098,8 @@ skipFeedToLds:
         v_mov_b32 tmp2, 5162220           # 1/26*(1<<27)
         v_mul_i32_i24 tmp1, \x, tmp2
         v_mul_hi_i32_i24 tmp2, \x, tmp2
-        v_add_u32 tmp1, vcc, 2581110, tmp1
-        v_addc_u32 tmp2, vcc, 0, tmp2, vcc
+        VADD_U32 tmp1, vcc, 2581110, tmp1
+        VADDC_U32 tmp2, vcc, 0, tmp2, vcc
         v_alignbit_b32 \y, tmp2, tmp1, 27
         RegFree tmp1
         RegFree tmp2
@@ -1061,8 +1111,8 @@ skipFeedToLds:
         v_mov_b32 tmp2, \const1           # 1/26*(1<<27)
         v_mul_i32_i24 tmp1, \x, tmp2
         v_mul_hi_i32_i24 tmp2, \x, tmp2
-        v_add_u32 tmp1, vcc, \const2, tmp1
-        v_addc_u32 tmp2, vcc, 0, tmp2, vcc
+        VADD_U32 tmp1, vcc, \const2, tmp1
+        VADDC_U32 tmp2, vcc, 0, tmp2, vcc
         v_alignbit_b32 \y, tmp2, tmp1, 31
         RegFree tmp1
         RegFree tmp2
@@ -1082,12 +1132,12 @@ skipFeedToLds:
     
     .macro VMod26Fn x, y
         VRegAlloc1 tmp1
-        v_add_u32 tmp1, vcc, ALPSIZE*2, \x
+        VADD_U32 tmp1, vcc, ALPSIZE*2, \x
         v_mul_i32_i24 \y, 20165, tmp1
-        v_add_u32 \y, vcc, 10000, \y
+        VADD_U32 \y, vcc, 10000, \y
         v_lshrrev_b32 \y, 19, \y
         v_mul_i32_i24 \y, ALPSIZE, \y
-        v_sub_u32 \y, vcc, tmp1, \y
+        VSUB_U32 \y, vcc, tmp1, \y
         RegFree tmp1
     .endm
     
@@ -1431,11 +1481,11 @@ ComputeScramblerIndexBasejump1\@:
         VRegAlloc1 l_phase_v
         v_mov_b32 l_phase_v, l_phase
         RegFree l_phase
-        v_addc_u32 l_phase_v, vcc, 0, l_phase_v, vcc
+        VADDC_U32 l_phase_v, vcc, 0, l_phase_v, vcc
         /* int m_steps = (m_phase + char_pos + 1) / m_period; */
         VRegAlloc1 m_steps
-        v_add_u32 m_steps, vcc, m_phase, \char_pos
-        v_add_u32 m_steps, vcc, 1, m_steps
+        VADD_U32 m_steps, vcc, m_phase, \char_pos
+        VADD_U32 m_steps, vcc, 1, m_steps
         s_cmp_eq_i32 m_period, HALF_ALPSIZE
         #RegFree m_period
         #RegFree m_phase
@@ -1443,8 +1493,8 @@ ComputeScramblerIndexBasejump1\@:
         VSDivBy26 m_steps, m_steps
         /* int l_steps = (l_phase + char_pos + 1) / l_period; */
         VRegAlloc1 l_steps
-        v_add_u32 l_steps, vcc, l_phase_v, \char_pos
-        v_add_u32 l_steps, vcc, 1, l_steps
+        VADD_U32 l_steps, vcc, l_phase_v, \char_pos
+        VADD_U32 l_steps, vcc, 1, l_steps
         s_cmp_eq_i32 m_period, HALF_ALPSIZE
         RegFree l_phase_v
         #RegFree l_period
@@ -1452,25 +1502,25 @@ ComputeScramblerIndexBasejump1\@:
         v_lshlrev_b32 l_steps, scc, l_steps
         VSDivByX l_steps, l_steps, l_period_const1, l_period_const2
         
-        v_add_u32 m_steps, vcc, m_steps, l_steps
+        VADD_U32 m_steps, vcc, m_steps, l_steps
         
         # mod26(sett->l_mesg - sett->l_ring /*0*/ + l_steps)
-        v_add_u32 l_steps, vcc, l_mesg, l_steps
+        VADD_U32 l_steps, vcc, l_mesg, l_steps
         VMod26Fn l_steps, l_steps
         v_mul_i32_i24 l_steps, ALPSIZE_TO2, l_steps
         
         # mod26(sett->m_mesg - sett->m_ring + m_steps)
-        v_add_u32 m_steps, vcc, m_mesg, m_steps
-        v_sub_u32 m_steps, vcc, m_steps, mr_ring[0]
+        VADD_U32 m_steps, vcc, m_mesg, m_steps
+        VSUB_U32 m_steps, vcc, m_steps, mr_ring[0]
         VMod26Fn m_steps, m_steps
         v_mul_i32_i24 m_steps, ALPSIZE, m_steps
         
-        v_add_u32 \scramblerIndex, vcc, r_mesg, \char_pos
-        v_sub_u32 \scramblerIndex, vcc, \scramblerIndex, mr_ring[1]
-        v_add_u32 \scramblerIndex, vcc, 1, \scramblerIndex
+        VADD_U32 \scramblerIndex, vcc, r_mesg, \char_pos
+        VSUB_U32 \scramblerIndex, vcc, \scramblerIndex, mr_ring[1]
+        VADD_U32 \scramblerIndex, vcc, 1, \scramblerIndex
         VMod26Fn \scramblerIndex, \scramblerIndex
-        v_add_u32 \scramblerIndex, vcc, \scramblerIndex, m_steps
-        v_add_u32 \scramblerIndex, vcc, \scramblerIndex, l_steps
+        VADD_U32 \scramblerIndex, vcc, \scramblerIndex, m_steps
+        VADD_U32 \scramblerIndex, vcc, \scramblerIndex, l_steps
         
         RegFree l_steps
         RegFree m_steps
@@ -1829,7 +1879,7 @@ toProcess:
         v_and_b32 dsoffset, ~(SCRAMBLER_STRIDE-1)<<2, lid4
         v_mul_u32_u24 dsoffset, 7, dsoffset
         v_bfi_b32 dsoffset, (SCRAMBLER_STRIDE-1)<<2, lid4, dsoffset
-        v_add_u32 dsoffset, vcc, LocalScrambler, dsoffset
+        VADD_U32 dsoffset, vcc, LocalScrambler, dsoffset
         
         s_waitcnt lgkmcnt(0)
         
@@ -1844,9 +1894,9 @@ toProcess:
             buffer_load_sbyte d_orderVal, d_orderVal, bufres, d_order offen
         .else
             VRegAlloc2 tmpaddr
-            v_add_u32 tmpaddr[0], vcc, d_order[0], d_orderVal
+            VADD_U32 tmpaddr[0], vcc, d_order[0], d_orderVal
             v_mov_b32 tmpaddr[1], d_order[1]
-            v_addc_u32 tmpaddr[1], vcc, 0, tmpaddr[1], vcc
+            VADDC_U32 tmpaddr[1], vcc, 0, tmpaddr[1], vcc
             flat_load_sbyte d_orderVal, tmpaddr
             RegFree tmpaddr
         .endif
@@ -1904,7 +1954,7 @@ toProcess:
         v_and_b32 cvaddr, ~3, cv
         v_mul_u32_u24 cvaddr, SCRAMBLER_STRIDE, cvaddr
         v_bfi_b32 cvaddr, 3, cv, cvaddr
-        v_add_u32 cvaddr, vcc, cvaddr, dsoffset
+        VADD_U32 cvaddr, vcc, cvaddr, dsoffset
         ds_read_i8 cv, cvaddr
         s_waitcnt lgkmcnt(0)
         ds_read_i8 cv, cv offset:LocalPlugs
@@ -2140,7 +2190,7 @@ IcScore_skip1_\@:
         */
         ds_read_b32 vone, lid4 offset:LocalScoreBuf
         s_waitcnt lgkmcnt(0)
-        v_subrev_u32 cvaddr, vcc, 1, vone
+        VSUBREV_U32 cvaddr, vcc, 1, vone
         v_mul_u32_u24 vone, vone, cvaddr
         # summarize
         /* //sum up
@@ -2157,32 +2207,32 @@ IcScore_skip1_\@:
         */
         .ifge ARCH-GCN12
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:1
+            VADD_U32       vone, vcc, vone, vone row_shr:1
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:2
+            VADD_U32       vone, vcc, vone, vone row_shr:2
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:4
+            VADD_U32       vone, vcc, vone, vone row_shr:4
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:8
+            VADD_U32       vone, vcc, vone, vone row_shr:8
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_bcast:15
+            VADD_U32       vone, vcc, vone, vone row_bcast:15
             v_readlane_b32  score, vone, 31
         .else   # GCN 1.0/1.1
             ds_swizzle_b32  cvaddr, vone offset:0x8031      # th3 -> th2, th1 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x8002      # th2 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(4<<5)      # th4 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(8<<5)      # th8 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(16<<5)      # th16 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             v_readfirstlane_b32  score, vone
         .endif
 IcScore_skip2_\@:
@@ -2303,35 +2353,35 @@ CUR_SCORE_KIND = skUnigram
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:1
+            VADD_U32       vone, vcc, vone, vone row_shr:1
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:2
+            VADD_U32       vone, vcc, vone, vone row_shr:2
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:4
+            VADD_U32       vone, vcc, vone, vone row_shr:4
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:8
+            VADD_U32       vone, vcc, vone, vone row_shr:8
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_bcast:15
+            VADD_U32       vone, vcc, vone, vone row_bcast:15
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_bcast:31
+            VADD_U32       vone, vcc, vone, vone row_bcast:31
         .else   # GCN 1.0/1.1
             ds_swizzle_b32  cvaddr, vone offset:0x8031      # th3 -> th2, th1 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x8002      # th2 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(4<<5)      # th4 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(8<<5)      # th8 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(16<<5)      # th16 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             v_readlane_b32  tmpadd, vone, 32        # get V4[32] (th32)
-            v_add_i32       vone, vcc, tmpadd, vone
+            VADD_U32       vone, vcc, tmpadd, vone
         .endif
     
         .ifgt TASK_SIZE-64
@@ -2357,22 +2407,22 @@ CUR_SCORE_KIND = skUnigram
             ds_read_b32     tmpsums0, wvid4 offset:LocalTmpSums+4
             ds_read_b64     tmpsums1, wvid4 offset:LocalTmpSums+8
             s_waitcnt       lgkmcnt(1)
-            v_add_u32       vone, vcc, tmpsums0, vone
+            VADD_U32       vone, vcc, tmpsums0, vone
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums1[0], vone
-            v_add_u32       vone, vcc, tmpsums1[1], vone
+            VADD_U32       vone, vcc, tmpsums1[0], vone
+            VADD_U32       vone, vcc, tmpsums1[1], vone
 Unisumskip\@:
         .elseifgt TASK_SIZE-128
             ds_read2_b32    tmpsums, wvid4 offset0:LocalTmpSums>>2+1 \
                     offset1:LocalTmpSums>>2+2
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums[0], vone
-            v_add_u32       vone, vcc, tmpsums[1], vone
+            VADD_U32       vone, vcc, tmpsums[0], vone
+            VADD_U32       vone, vcc, tmpsums[1], vone
 Unisumskip\@:
         .elseifgt TASK_SIZE-64
             ds_read_b32     tmpsums, wvid4 offset:LocalTmpSums+4
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums, vone
+            VADD_U32       vone, vcc, tmpsums, vone
 Unisumskip\@:
         .endif
         .ifge ARCH-GCN12
@@ -2504,35 +2554,35 @@ CUR_SCORE_KIND = skBigram
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:1
+            VADD_U32       vone, vcc, vone, vone row_shr:1
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:2
+            VADD_U32       vone, vcc, vone, vone row_shr:2
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:4
+            VADD_U32       vone, vcc, vone, vone row_shr:4
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:8
+            VADD_U32       vone, vcc, vone, vone row_shr:8
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_bcast:15
+            VADD_U32       vone, vcc, vone, vone row_bcast:15
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_bcast:31
+            VADD_U32       vone, vcc, vone, vone row_bcast:31
         .else   # GCN 1.0/1.1
             ds_swizzle_b32  cvaddr, vone offset:0x8031      # th3 -> th2, th1 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x8002      # th2 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(4<<5)      # th4 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(8<<5)      # th8 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(16<<5)      # th16 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             v_readlane_b32  tmpadd, vone, 32        # get V4[32] (th32)
-            v_add_i32       vone, vcc, tmpadd, vone
+            VADD_U32       vone, vcc, tmpadd, vone
         .endif
     
         .ifgt TASK_SIZE-1-64
@@ -2561,22 +2611,22 @@ BigramSkip2_\@:
             ds_read_b32     tmpsums0, wvid4 offset:LocalTmpSums+4
             ds_read_b64     tmpsums1, wvid4 offset:LocalTmpSums+8
             s_waitcnt       lgkmcnt(1)
-            v_add_u32       vone, vcc, tmpsums0, vone
+            VADD_U32       vone, vcc, tmpsums0, vone
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums1[0], vone
-            v_add_u32       vone, vcc, tmpsums1[1], vone
+            VADD_U32       vone, vcc, tmpsums1[0], vone
+            VADD_U32       vone, vcc, tmpsums1[1], vone
 Bisumskip\@:
         .elseifgt TASK_SIZE-1-128
             ds_read2_b32    tmpsums, wvid4 offset0:LocalTmpSums>>2+1 \
                     offset1:LocalTmpSums>>2+2
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums[0], vone
-            v_add_u32       vone, vcc, tmpsums[1], vone
+            VADD_U32       vone, vcc, tmpsums[0], vone
+            VADD_U32       vone, vcc, tmpsums[1], vone
 Bisumskip\@:
         .elseifgt TASK_SIZE-1-64
             ds_read_b32     tmpsums[0], wvid4 offset:LocalTmpSums+4
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums[0], vone
+            VADD_U32       vone, vcc, tmpsums[0], vone
 Bisumskip\@:
         .endif
         .ifge ARCH-GCN12
@@ -2746,35 +2796,35 @@ CUR_SCORE_KIND = skTrigram
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:1
+            VADD_U32       vone, vcc, vone, vone row_shr:1
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:2
+            VADD_U32       vone, vcc, vone, vone row_shr:2
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:4
+            VADD_U32       vone, vcc, vone, vone row_shr:4
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_shr:8
+            VADD_U32       vone, vcc, vone, vone row_shr:8
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_bcast:15
+            VADD_U32       vone, vcc, vone, vone row_bcast:15
             s_nop 1
-            v_add_i32       vone, vcc, vone, vone row_bcast:31
+            VADD_U32       vone, vcc, vone, vone row_bcast:31
         .else   # GCN 1.0/1.1
             ds_swizzle_b32  cvaddr, vone offset:0x8031      # th3 -> th2, th1 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x8002      # th2 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(4<<5)      # th4 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(8<<5)      # th8 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             ds_swizzle_b32  cvaddr, vone offset:0x1f|(16<<5)      # th16 -> th0
             s_waitcnt       lgkmcnt(0)
-            v_add_i32       vone, vcc, vone, cvaddr
+            VADD_U32       vone, vcc, vone, cvaddr
             v_readlane_b32  tmpadd, vone, 32        # get V4[32] (th32)
-            v_add_i32       vone, vcc, tmpadd, vone
+            VADD_U32       vone, vcc, tmpadd, vone
         .endif
             
         .ifgt TASK_SIZE-2-64
@@ -2803,22 +2853,22 @@ TrigramSkip2_\@:
             ds_read_b32     tmpsums0, wvid4 offset:LocalTmpSums+4
             ds_read_b64     tmpsums1, wvid4 offset:LocalTmpSums+8
             s_waitcnt       lgkmcnt(1)
-            v_add_u32       vone, vcc, tmpsums0, vone
+            VADD_U32       vone, vcc, tmpsums0, vone
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums1[0], vone
-            v_add_u32       vone, vcc, tmpsums1[1], vone
+            VADD_U32       vone, vcc, tmpsums1[0], vone
+            VADD_U32       vone, vcc, tmpsums1[1], vone
 Trisumskip\@:
         .elseifgt TASK_SIZE-2-128
             ds_read2_b32    tmpsums, wvid4 offset0:LocalTmpSums>>2+1 \
                     offset1:LocalTmpSums>>2+2
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums[0], vone
-            v_add_u32       vone, vcc, tmpsums[1], vone
+            VADD_U32       vone, vcc, tmpsums[0], vone
+            VADD_U32       vone, vcc, tmpsums[1], vone
 Trisumskip\@:
         .elseifgt TASK_SIZE-2-64
             ds_read_b32     tmpsums[0], wvid4 offset:LocalTmpSums+4
             s_waitcnt       lgkmcnt(0)
-            v_add_u32       vone, vcc, tmpsums[0], vone
+            VADD_U32       vone, vcc, tmpsums[0], vone
 Trisumskip\@:
         .endif
         .ifge ARCH-GCN12
