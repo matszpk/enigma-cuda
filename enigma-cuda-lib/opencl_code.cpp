@@ -329,7 +329,7 @@ static bool prepareAssemblyOfClimbKernel()
   size_t asmSourceSize = ___enigma_cuda_lib_climb_clrx_len;
   /*std::vector<char> asmSourceVector;
   {
-    const char* eclimbSourceName = getenv("ECLIMB_ASMSOURCE");
+    const char* eclimbSourceName = ::getenv("ECLIMB_ASMSOURCE");
     if (eclimbSourceName!=NULL && *eclimbSourceName!=0)
     {
       asmSourceVector = getFileContent(eclimbSourceName);
@@ -434,7 +434,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     return false;
   }
   
-  const char* cldevStr = getenv("CLDEV");
+  const char* cldevStr = ::getenv("CLDEV");
   if (settings_device != -1)
     best_device = settings_device;
   else if (cldevStr != nullptr)
@@ -488,7 +488,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 #ifdef DEBUG_CLIMB
   std::cout << "CipherLength: " << OpenCL_cipher_length << std::endl;
   {
-    const char* debugPartStr = getenv("ECLIMB_DEBUG_PART");
+    const char* debugPartStr = ::getenv("ECLIMB_DEBUG_PART");
     if (debugPartStr!=NULL && *debugPartStr!=0)
       debugPart = atoi(debugPartStr);
   }

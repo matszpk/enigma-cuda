@@ -794,7 +794,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     return false;
   }
   
-  const char* cudadevStr = getenv("CUDADEV");
+  const char* cudadevStr = ::getenv("CUDADEV");
   if (settings_device != -1)
     best_device = settings_device;
   else if (cudadevStr != nullptr)
