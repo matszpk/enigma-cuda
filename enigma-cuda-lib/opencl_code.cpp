@@ -327,7 +327,7 @@ static bool prepareAssemblyOfClimbKernel()
   Array<cxbyte> binary;
   const char* asmSource = (const char*)___enigma_cuda_lib_climb_clrx;
   size_t asmSourceSize = ___enigma_cuda_lib_climb_clrx_len;
-  std::vector<char> asmSourceVector;
+  /*std::vector<char> asmSourceVector;
   {
     const char* eclimbSourceName = getenv("ECLIMB_ASMSOURCE");
     if (eclimbSourceName!=NULL && *eclimbSourceName!=0)
@@ -336,7 +336,7 @@ static bool prepareAssemblyOfClimbKernel()
       asmSource = asmSourceVector.data();
       asmSourceSize = asmSourceVector.size();
     }
-  }
+  }*/
   {
     ArrayIStream astream(asmSourceSize, asmSource);
     Assembler assembler("", astream, 0, binaryFormat, devType, std::cerr, std::cerr);
@@ -504,7 +504,13 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   oclContext = clpp::Context(ctxProps, device);
   oclCmdQueue = clpp::CommandQueue(oclContext, oclDevice);
   
-  useClrxAssembly = prepareAssemblyOfClimbKernel();
+  bool disableClrxAssembly = true;
+  {
+      const char* disaClrxAsmStr = ::getenv("ECLRXASM_DISABLE");
+      disableClrxAssembly = (disaClrxAsmStr!=NULL && ::strcmp(disaClrxAsmStr, "1")==0);
+  }
+  if (!disableClrxAssembly)
+    useClrxAssembly = prepareAssemblyOfClimbKernel();
   
   int wavefrontSize = 0;
   if (!useClrxAssembly) // get wavefront size
