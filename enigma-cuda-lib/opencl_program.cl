@@ -301,17 +301,56 @@ int8_t Decode(const local int8_t * plugboard, const local int8_t * scrambling_ta
   return c;
 }
 
-// especially optimized for AMD GPU (64 work items in group size)
+// especially optimized for specific wavefront size
 void Sum(int count, volatile local int * data, local int * sum, uint lid)
 {
+#if WAVEFRONT_SIZE>=128
+  {
+    if ((lid + 128) < count) data[lid] += data[128 + lid];
+    if ((lid + 64) < count) data[lid] += data[64 + lid];
+    if ((lid + 32) < count) data[lid] += data[32 + lid];
+    if ((lid + 16) < count) data[lid] += data[16 + lid];
+#elif WAVEFRONT_SIZE>=64
   if ((lid + 128) < count) data[lid] += data[128 + lid];
   barrier(CLK_LOCAL_MEM_FENCE);
-
   if (lid < 64)
   {
     if ((lid + 64) < count) data[lid] += data[64 + lid];
     if ((lid + 32) < count) data[lid] += data[32 + lid];
     if ((lid + 16) < count) data[lid] += data[16 + lid];
+#elif WAVEFRONT_SIZE>=32
+  if ((lid + 128) < count) data[lid] += data[128 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 64 && (lid + 64) < count) data[lid] += data[64 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 32)
+  {
+    if ((lid + 32) < count) data[lid] += data[32 + lid];
+    if ((lid + 16) < count) data[lid] += data[16 + lid];
+#elif WAVEFRONT_SIZE>=16
+  if ((lid + 128) < count) data[lid] += data[128 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 64 && (lid + 64) < count) data[lid] += data[64 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 32 && (lid + 32) < count) data[lid] += data[32 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 16)
+  {
+    if ((lid + 16) < count) data[lid] += data[16 + lid];
+#elif WAVEFRONT_SIZE>=8
+  if ((lid + 128) < count) data[lid] += data[128 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 64 && (lid + 64) < count) data[lid] += data[64 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 32 && (lid + 32) < count) data[lid] += data[32 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 16 && (lid + 16) < count) data[lid] += data[16 + lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 8)
+  {
+#else
+    #error "Wavefront smaller than 8 workitems is not supported!"
+#endif
     data[lid] += data[8 + lid];
     data[lid] += data[4 + lid];
     data[lid] += data[2 + lid];
@@ -343,9 +382,19 @@ void IcScore(local Block * block, const local int8_t * scrambling_table,
     block->score_buf[lid] *= block->score_buf[lid] - 1;
 
   //sum up
+#if WAVEFRONT_SIZE>=16
   if (lid < (HISTO_SIZE >> 1))
   {
     block->score_buf[lid] += block->score_buf[lid + 16];
+#elif WAVEFRONT_SIZE>=8
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < (HISTO_SIZE >> 1)) block->score_buf[lid] += block->score_buf[lid + 16];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < 8)
+  {
+#else
+    #error "Wavefront smaller than 8 workitems is not supported!"
+#endif
     block->score_buf[lid] += block->score_buf[lid + 8];
     block->score_buf[lid] += block->score_buf[lid + 4];
     block->score_buf[lid] += block->score_buf[lid + 2];

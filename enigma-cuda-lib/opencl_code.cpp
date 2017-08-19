@@ -373,6 +373,23 @@ static bool prepareAssemblyOfClimbKernel()
   return true;
 }
 
+static const char* tempProgramSource =
+R"ffSaCD(kernel void vectorAdd(uint n, const global float* a, const global float* b,
+            global float* c)
+{
+    uint i = get_global_id(0);
+    if (i >= n) return;
+    c[i] = a[i] + b[i];
+})ffSaCD";
+
+static size_t getWorkGroupSizeMultiple()
+{
+  const clpp::Program tmpProg(oclContext, tempProgramSource);
+  tmpProg.build();
+  const clpp::Kernel tmpKernel(tmpProg, "vectorAdd");
+  return tmpKernel.getPreferredWorkGroupSizeMultiple(oclDevice);
+}
+
 /*
  * OpenCL init
  */
@@ -489,14 +506,21 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   
   useClrxAssembly = prepareAssemblyOfClimbKernel();
   
+  int wavefrontSize = 0;
+  if (!useClrxAssembly) // get wavefront size
+    wavefrontSize = getWorkGroupSizeMultiple();
+  
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
                     ___enigma_cuda_lib_opencl_program_cl_len);
   {
-    char optionsBuf[90];
-    snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d"
+    char optionsBuf[120];
+    size_t len = snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d"
             " -DSCRAMBLER_STRIDE=%d", OpenCL_cipher_length, SCRAMBLER_STRIDE);
     if (useClrxAssembly)
       strcat(optionsBuf, " -DWITHOUT_CLIMB_KERNEL=1");
+    else // add wavefront size def
+      snprintf(optionsBuf+len, (sizeof optionsBuf) - len,
+               " -DWAVEFRONT_SIZE=%d\n", wavefrontSize);
     try
     { oclProgram.build(optionsBuf); }
     catch(const clpp::Error& error)
