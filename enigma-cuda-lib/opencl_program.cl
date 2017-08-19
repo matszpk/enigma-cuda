@@ -383,6 +383,9 @@ void IcScore(local Block * block, const local int8_t * scrambling_table,
 
   //sum up
 #if WAVEFRONT_SIZE>=16
+#  if WAVEFRONT_SIZE<32
+  barrier(CLK_LOCAL_MEM_FENCE);
+#  endif
   if (lid < (HISTO_SIZE >> 1))
   {
     block->score_buf[lid] += block->score_buf[lid + 16];
