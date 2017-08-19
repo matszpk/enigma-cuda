@@ -504,7 +504,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   oclContext = clpp::Context(ctxProps, device);
   oclCmdQueue = clpp::CommandQueue(oclContext, oclDevice);
   
-  //useClrxAssembly = prepareAssemblyOfClimbKernel();
+  useClrxAssembly = prepareAssemblyOfClimbKernel();
   
   int wavefrontSize = 0;
   if (!useClrxAssembly) // get wavefront size
@@ -521,7 +521,6 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     else // add wavefront size def
       snprintf(optionsBuf+len, (sizeof optionsBuf) - len,
                " -DWAVEFRONT_SIZE=%d", wavefrontSize);
-    std::cout << "Program build options: " << optionsBuf << std::endl;
     try
     { oclProgram.build(optionsBuf); }
     catch(const clpp::Error& error)
