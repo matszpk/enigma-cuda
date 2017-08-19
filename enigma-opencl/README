@@ -1,7 +1,9 @@
 This binaries from code from revision:
 
-commit 024c1ef945559c4901300868144c37aeada34b92
+commit 77b7386dc957c5e29429c6abfad01f3a7d085a03
 Author: matszpk <matszpk@interia.pl>
-Date:   Tue Jul 25 11:20:46 2017 +0200
+Date:   Sat Aug 19 18:33:46 2017 +0200
 
-    Print error and exit when no preferred platform vendor (opencl).
+    Add info about envvars in help. Cosmetic changes in code.
+
+First version with GCN assembly optimizations.
