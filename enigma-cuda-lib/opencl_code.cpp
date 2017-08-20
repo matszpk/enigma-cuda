@@ -279,13 +279,6 @@ void setUpConfig(int turnover_modes, int score_kinds, int cipher_length)
   CLRX_GroupSize = (cipher_length + 63) & ~63;
 }
 
-static std::vector<char> getFileContent(const char* name)
-{
-    std::ifstream ifs(name, std::ios::binary);
-    std::istreambuf_iterator<char> fit(ifs);
-    return std::vector<char>(fit, std::istreambuf_iterator<char>());
-}
-
 static bool prepareAssemblyOfClimbKernel()
 {
   GPUDeviceType devType = GPUDeviceType::CAPE_VERDE;
@@ -327,16 +320,6 @@ static bool prepareAssemblyOfClimbKernel()
   Array<cxbyte> binary;
   const char* asmSource = (const char*)___enigma_cuda_lib_climb_clrx;
   size_t asmSourceSize = ___enigma_cuda_lib_climb_clrx_len;
-  /*std::vector<char> asmSourceVector;
-  {
-    const char* eclimbSourceName = ::getenv("ECLIMB_ASMSOURCE");
-    if (eclimbSourceName!=NULL && *eclimbSourceName!=0)
-    {
-      asmSourceVector = getFileContent(eclimbSourceName);
-      asmSource = asmSourceVector.data();
-      asmSourceSize = asmSourceVector.size();
-    }
-  }*/
   {
     ArrayIStream astream(asmSourceSize, asmSource);
     Assembler assembler("", astream, 0, binaryFormat, devType, std::cerr, std::cerr);
@@ -504,7 +487,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   oclContext = clpp::Context(ctxProps, device);
   oclCmdQueue = clpp::CommandQueue(oclContext, oclDevice);
   
-  bool disableClrxAssembly = true;
+  bool disableClrxAssembly = false;
   {
       const char* disaClrxAsmStr = ::getenv("ECLRXASM_DISABLE");
       disableClrxAssembly = (disaClrxAsmStr!=NULL && ::strcmp(disaClrxAsmStr, "1")==0);
