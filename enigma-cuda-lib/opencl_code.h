@@ -74,7 +74,9 @@ int8_t mod26(const int16_t x);
 
 extern unsigned char ___enigma_cuda_lib_opencl_program_cl[];
 extern unsigned int ___enigma_cuda_lib_opencl_program_cl_len;
+#ifdef HAVE_CLRX
 extern unsigned char ___enigma_cuda_lib_climb_clrx[];
 extern unsigned int ___enigma_cuda_lib_climb_clrx_len;
+#endif
 
 };

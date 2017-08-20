@@ -17,8 +17,10 @@
 #include <cmath>
 #include <memory>
 #include <clpp.h>
+#ifdef HAVE_CLRX
 #include <CLRX/utils/GPUId.h>
 #include <CLRX/amdasm/Assembler.h>
+#endif
 #include "opencl_code.h"
 #include "plugboard.h"
 #include "ngrams.h"
@@ -39,6 +41,7 @@
 #define DEBUG_DUMP 0
 //#define DEBUG_RESULTS 1
 
+// comment when application must accept any OpenCL platform
 #define ACCEPT_ONLY_PREFERRED_PLATFORM 1
 // for AMD
 #define PLATFORM_VENDOR "Advanced Micro Devices, Inc."
@@ -60,7 +63,11 @@ static clpp::Kernel FindBestResultKernel;
 static clpp::Kernel FindBestResultKernel2;
 static size_t FindBestResultKernelWGSize;
 static cl_uint thBlockShift = 0;
+#ifdef HAVE_CLRX
 static bool useClrxAssembly = false;
+#else
+static const bool useClrxAssembly = false;
+#endif
 
 // buffers
 static clpp::Buffer d_ciphertextBuffer;
@@ -71,7 +78,9 @@ static clpp::Buffer scramblerDataBuffer;
 static clpp::Buffer d_orderBuffer;
 static clpp::Buffer d_plugsBuffer;
 static clpp::Buffer d_fixedBuffer;
+#ifdef HAVE_CLRX
 static cl_int d_fixedValue = 0;
+#endif
 static clpp::Buffer d_tempBuffer;
 static clpp::Buffer d_unigramsBuffer;
 static clpp::Buffer d_bigramsBuffer;
@@ -80,7 +89,9 @@ static clpp::Buffer resultsBuffer;
 static size_t trigramsBufferPitch;
 static clpp::Buffer trigramsBuffer;
 
+#ifdef HAVE_CLRX
 using namespace CLRX;
+#endif
 
 extern "C"
 {
@@ -141,7 +152,9 @@ void SetUpScramblerMemory()
 #endif
   GenerateScramblerKernel.setArg(4, cl_uint(scramblerDataPitch));
   GenerateScramblerKernel.setArg(5, scramblerDataBuffer);
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
     ClimbKernel.setArg(3, cl_uint(scramblerDataPitch));
   ClimbKernel.setArg(4 - int(useClrxAssembly)*2, scramblerDataBuffer);
 }
@@ -279,6 +292,7 @@ void setUpConfig(int turnover_modes, int score_kinds, int cipher_length)
   CLRX_GroupSize = (cipher_length + 63) & ~63;
 }
 
+#ifdef HAVE_CLRX
 static bool prepareAssemblyOfClimbKernel()
 {
   GPUDeviceType devType = GPUDeviceType::CAPE_VERDE;
@@ -355,6 +369,7 @@ static bool prepareAssemblyOfClimbKernel()
   ClimbKernel = clpp::Kernel(oclClrxProgram, "ClimbKernel");
   return true;
 }
+#endif
 
 static const char* tempProgramSource =
 R"ffSaCD(kernel void vectorAdd(uint n, const global float* a, const global float* b,
@@ -487,6 +502,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   oclContext = clpp::Context(ctxProps, device);
   oclCmdQueue = clpp::CommandQueue(oclContext, oclDevice);
   
+#ifdef HAVE_CLRX
   bool disableClrxAssembly = false;
   {
       const char* disaClrxAsmStr = ::getenv("ECLRXASM_DISABLE");
@@ -494,9 +510,12 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   }
   if (!disableClrxAssembly)
     useClrxAssembly = prepareAssemblyOfClimbKernel();
+#endif
   
   int wavefrontSize = 0;
+#ifdef HAVE_CLRX
   if (!useClrxAssembly) // get wavefront size
+#endif
     wavefrontSize = getWorkGroupSizeMultiple();
   
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
@@ -505,9 +524,11 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     char optionsBuf[120];
     size_t len = snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d"
             " -DSCRAMBLER_STRIDE=%d", OpenCL_cipher_length, SCRAMBLER_STRIDE);
+#ifdef HAVE_CLRX
     if (useClrxAssembly)
       strcat(optionsBuf, " -DWITHOUT_CLIMB_KERNEL=1");
     else // add wavefront size def
+#endif
       snprintf(optionsBuf+len, (sizeof optionsBuf) - len,
                " -DWAVEFRONT_SIZE=%d", wavefrontSize);
     try
@@ -519,7 +540,9 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     }
   }
   GenerateScramblerKernel = clpp::Kernel(oclProgram, "GenerateScramblerKernel");
+#ifdef HAVE_CLRX
   if (!useClrxAssembly) // if not compiled in Assembler code
+#endif
     ClimbKernel = clpp::Kernel(oclProgram, "ClimbKernel");
   FindBestResultKernel = clpp::Kernel(oclProgram, "FindBestResultKernel");
   FindBestResultKernel2 = clpp::Kernel(oclProgram, "FindBestResultKernel");
@@ -545,7 +568,9 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   d_wiringBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, sizeof(Wiring));
   d_orderBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
   d_plugsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
     d_fixedBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
   d_unigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
                     ALPSIZE*sizeof(NGRAM_DATA_TYPE));
@@ -569,7 +594,9 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   ClimbKernel.setArg(8 - int(useClrxAssembly)*3, d_bigramsBuffer);
   ClimbKernel.setArg(9 - int(useClrxAssembly)*3, d_plugsBuffer);
   ClimbKernel.setArg(10 - int(useClrxAssembly)*3, d_orderBuffer);
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
     ClimbKernel.setArg(11, d_fixedBuffer);
   ClimbKernel.setArg(12 - int(useClrxAssembly)*3, d_ciphertextBuffer);
 #ifdef DEBUG_CLIMB
@@ -595,7 +622,9 @@ void CipherTextToDevice(string ciphertext_string)
   ::memcpy(d_ciphertext, cipher_data, cipher.size());
   task.count = (int)cipher.size();
 #endif
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
     ClimbKernel.setArg(2, cl_uint(cipher.size()));
 }
 
@@ -648,7 +677,9 @@ void NgramsToDevice(const string & uni_filename,
     oclCmdQueue.writeBuffer(trigramsBuffer, 0, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3,
                   trigrams_obj.data);
   }
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
     ClimbKernel.setArg(5, cl_uint(trigramsBufferPitch));
   ClimbKernel.setArg(6 - 3*int(useClrxAssembly), trigramsBuffer);
 }
@@ -675,8 +706,11 @@ void PlugboardToDevice(const Plugboard & plugboard)
   ::memcpy(d_fixed, plugboard.fixed, sizeof(bool)*ALPSIZE);
 #endif
   oclCmdQueue.enqueueWriteBuffer(d_plugsBuffer, 0, ALPSIZE, plugboard.plugs);
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
     oclCmdQueue.writeBuffer(d_fixedBuffer, 0, ALPSIZE, plugboard.fixed);
+#ifdef HAVE_CLRX
   else
   {
     d_fixedValue = 0;
@@ -684,6 +718,7 @@ void PlugboardToDevice(const Plugboard & plugboard)
       d_fixedValue |= plugboard.fixed[i] ? (1<<i) : 0;
     ClimbKernel.setArg(8, d_fixedValue);
   }
+#endif
 }
 
 void SetUpResultsMemory(int count)
@@ -712,7 +747,9 @@ void InitializeArrays(const string cipher_string, int turnover_modes,
   CipherTextToDevice(cipher_string);
   //d_wiring
   SetUpScramblerMemory();
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
   {
     //allow_turnover
     ClimbKernel.setArg(14, cl_int(turnover_modes));
@@ -1409,7 +1446,9 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
 #endif
   int grid_size = single_key ? 1 : ALPSIZE_TO3;
   int block_size = std::max(32, cipher_length);
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
   {
     int shared_scrambler_size = ((cipher_length + (SCRAMBLER_STRIDE-1)) &
                     ~(SCRAMBLER_STRIDE-1)) * 28;
@@ -1419,10 +1458,14 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
   int groupSize = !useClrxAssembly ? block_size : CLRX_GroupSize;
   clpp::Size3 workSize(grid_size*groupSize, 1, 1);
   clpp::Size3 localSize(groupSize, 1, 1);
+#ifdef HAVE_CLRX
   if (!useClrxAssembly)
+#endif
     oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, workSize, localSize);
+#ifdef HAVE_CLRX
   else // only one dimension for assembler version
     oclCmdQueue.enqueueNDRangeKernel(ClimbKernel, workSize[0], localSize[0]);
+#endif
   
 #ifdef DEBUG_CLIMB
   if (doDebugClimb)
