@@ -1,9 +1,9 @@
 This binaries from code from revision:
 
-commit 77b7386dc957c5e29429c6abfad01f3a7d085a03
+commit 358eb2d6737688f279d22d085794e92df39afd02
 Author: matszpk <matszpk@interia.pl>
-Date:   Sat Aug 19 18:33:46 2017 +0200
+Date:   Sun Aug 20 11:24:50 2017 +0200
 
-    Add info about envvars in help. Cosmetic changes in code.
+    Remove obsolete code. Fix stupid bug (allow to enable asm opts).
 
-First version with GCN assembly optimizations.
+Next version with GCN assembly optimizations (small fixes).
