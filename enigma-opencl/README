@@ -1,7 +1,9 @@
 This binaries from code from revision:
 
-commit 024c1ef945559c4901300868144c37aeada34b92
+commit 358eb2d6737688f279d22d085794e92df39afd02
 Author: matszpk <matszpk@interia.pl>
-Date:   Tue Jul 25 11:20:46 2017 +0200
+Date:   Sun Aug 20 11:24:50 2017 +0200
 
-    Print error and exit when no preferred platform vendor (opencl).
+    Remove obsolete code. Fix stupid bug (allow to enable asm opts).
+
+Next version with GCN assembly optimizations (small fixes).

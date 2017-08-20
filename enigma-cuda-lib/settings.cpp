@@ -33,7 +33,14 @@ const string help_string =
 "  - p             start with random swapping order\r\n"
 "  - g <scores>    use scores: 0 = IC, 1 = unigrams, 2 = bigrams, 3 = trigrams. default = 023\r\n"
 "  - d <device>    GPU device number\r\n"
-"  - icuwrmk       ignored but do not result in an error\r\n";
+"  - icuwrmk       ignored but do not result in an error\r\n"
+"\r\n"
+"Environment variables (only OpenCL version):\r\n"
+"CLDEV=<device>        GPU device number\r\n"
+"ECLRXASM_DISABLE=1    disable assembly optimizations\r\n"
+"ECLRXCLIMB_LEGACY=1   force use OpenCL 1.2 binary format in assembly optimizations\r\n"
+"Environment variables (only CUDA version):\r\n"
+"CUDADEV=<device>      GPU device number\r\n";
 
 
 #define VALID_OPTIONS "hvicpxaRM:w:r:m:u:s:f:t:k:n:z:o:e:E:g:d:"

@@ -13,6 +13,13 @@ We recommend to run this program on Radeon GCN 1.0 and later GPU architecture
 (all Radeon HD 7700/7800/7900, Radeon Rx 240-290, Radeon Rx 330-390/Fury/Nano,
 Radeon Rx 400/VEGA and later).
 
+## Assembly optimizations
+
+This version introduces an assembly's optimization for GCN 1.0/1.1/1.2 and VEGA (untested)
+architecture. It requires the CLRadeonExtender libraries. We recommend to use the latest
+CLRadeonExtender version from repository (trunk/master). To enable/disable GCN assembly
+optimization just change WITH_CLRX variable in makefile.
+
 ## Building
 
 The scripts for 'GNU make' and 'NMake' are in 'linux' and 'windows' directory.
