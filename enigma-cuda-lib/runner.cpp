@@ -42,6 +42,10 @@ bool Runner::Initialize(int max_length)
       
 
 #ifdef HAVE_OPENCL
+      LoadNgrams(
+          settings.unigram_file_name,
+          settings.bigram_file_name,
+          settings.trigram_file_name);
       setUpConfig(settings.turnover_modes, settings.score_kinds, ciphertext.size());
       // we need ciphertext before building OpenCL code
       if (!SelectGpuDevice(2, 0, settings.device, silent)) return false;
@@ -56,10 +60,14 @@ bool Runner::Initialize(int max_length)
           settings.score_kinds);
 
       //ngrams to device
+#ifdef HAVE_OPENCL
+      NgramsToDevice();
+#else
       NgramsToDevice(
-          settings.unigram_file_name, 
-          settings.bigram_file_name, 
+          settings.unigram_file_name,
+          settings.bigram_file_name,
           settings.trigram_file_name);
+#endif
 
       //out file
       out_stream = &std::cout;

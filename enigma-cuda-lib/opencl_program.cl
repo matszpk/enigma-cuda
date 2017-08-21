@@ -17,6 +17,16 @@
 #define REDUCE_MAX_THREADS 256
 
 #define NGRAM_DATA_TYPE int
+#ifdef SHORT_BIGRAMS
+#define NGRAM_DATA_TYPE_BIGRAM ushort
+#else
+#define NGRAM_DATA_TYPE_BIGRAM int
+#endif
+#ifdef SHORT_TRIGRAMS
+#define NGRAM_DATA_TYPE_TRIGRAM ushort
+#else
+#define NGRAM_DATA_TYPE_TRIGRAM int
+#endif
 
 typedef signed char int8_t;
 typedef unsigned char uint8_t;
@@ -422,7 +432,7 @@ void UniScore(local Block * block, const local int8_t * scrambling_table,
 
 void BiScore(local Block * block, const local int8_t* scrambling_table,
               const constant int8_t* d_ciphertext,
-              const constant NGRAM_DATA_TYPE* d_bigrams, uint lid)
+              const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams, uint lid)
 {
   if (lid < block->count)
     block->plain_text[lid] = Decode(block->plugs, scrambling_table, d_ciphertext, lid);
@@ -442,7 +452,7 @@ void BiScore(local Block * block, const local int8_t* scrambling_table,
 
 void TriScore(local Block * block, const local int8_t* scrambling_table,
                   const constant int8_t* d_ciphertext,
-                  const global NGRAM_DATA_TYPE* trigrams, uint lid)
+                  const global NGRAM_DATA_TYPE_TRIGRAM* trigrams, uint lid)
 {
   //decode char
   if (lid < block->count) 
@@ -462,8 +472,8 @@ void TriScore(local Block * block, const local int8_t* scrambling_table,
 
 void CalculateScore(local Block * block, const local int8_t * scrambling_table,
           const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams,
-          const global NGRAM_DATA_TYPE* trigrams, uint lid)
+          const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
+          const global NGRAM_DATA_TYPE_TRIGRAM* trigrams, uint lid)
 {
   switch (block->score_kind)
   {
@@ -479,8 +489,8 @@ void CalculateScore(local Block * block, const local int8_t * scrambling_table,
 //------------------------------------------------------------------------------
 void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
           local Block * block, const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams,
-          const global NGRAM_DATA_TYPE* trigrams,
+          const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
+          const global NGRAM_DATA_TYPE_TRIGRAM* trigrams,
           local int* old_score, const constant int8_t* d_fixed, uint lid)
 {
   int8_t x, z;
@@ -518,8 +528,8 @@ void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
 
 void MaximizeScore(local Block * block, const local int8_t * scrambling_table,
           const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams,
-          const global NGRAM_DATA_TYPE* trigrams,
+          const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
+          const global NGRAM_DATA_TYPE_TRIGRAM* trigrams,
           local int* old_score, const constant int8_t* d_order,
           const constant int8_t* d_fixed, uint lid)
 {
@@ -535,9 +545,9 @@ void MaximizeScore(local Block * block, const local int8_t * scrambling_table,
 kernel void ClimbKernel(const constant Wiring* d_wiring,
             const constant Key* d_key, int taskCount,
             const uint scramblerDataPitch, const global int8_t* scramblerData,
-            const uint trigramsDataPitch, const global NGRAM_DATA_TYPE* trigramsData,
+            const uint trigramsDataPitch, const global NGRAM_DATA_TYPE_TRIGRAM* trigramsData,
             const constant NGRAM_DATA_TYPE* d_unigrams,
-            const constant NGRAM_DATA_TYPE* d_bigrams,
+            const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
             const constant int8_t* d_plugs, const constant int8_t* d_order,
             const constant int8_t* d_fixed, const constant int8_t* d_ciphertext,
             global Result* taskResults,

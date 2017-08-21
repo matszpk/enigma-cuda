@@ -53,8 +53,9 @@ extern void CopyScramblerToHost(PitchedArray & dst);
 extern void setUpConfig(int turnover_modes, int score_kinds, int cipher_length);
 extern bool SelectGpuDevice(int req_major, int req_minor, int device, bool silent);
 extern void CipherTextToDevice(string ciphertext_string);
-extern void NgramsToDevice(const string & uni_filename,        
+extern void LoadNgrams(const string & uni_filename,
   const string & bi_filename, const string & tri_filename);
+extern void NgramsToDevice();
 extern void OrderToDevice(const int8_t * order);
 extern void PlugboardStringToDevice(string plugboard_string);
 extern void PlugboardToDevice(const Plugboard & plugboard);

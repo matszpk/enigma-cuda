@@ -2535,8 +2535,27 @@ CUR_SCORE_KIND = skBigram
         s_waitcnt lgkmcnt(0)
         
         v_mad_u32_u24 cvaddr, ALPSIZE, cv, cvaddr
+    .if SHORT_BIGRAMS
+        v_lshlrev_b32 cvaddr, 1, cvaddr
+    .else
         v_lshlrev_b32 cvaddr, 2, cvaddr
+    .endif
         
+    .if SHORT_BIGRAMS
+        .iffmt amdcl2
+            .if32
+                buffer_load_ushort vone, cvaddr, bufres, d_bigrams offen
+            .else
+                buffer_load_ushort vone, cvaddr, d_bigrams_res, 0 offen
+            .endif
+        .elseiffmt amd
+            .if32
+                buffer_load_ushort vone, cvaddr, d_bigrams_res, d_bigrams offen
+            .else
+                buffer_load_ushort vone, cvaddr, d_bigrams_res, 0 offen
+            .endif
+        .endif
+    .else
         .iffmt amdcl2
             .if32
                 buffer_load_dword vone, cvaddr, bufres, d_bigrams offen
@@ -2550,6 +2569,7 @@ CUR_SCORE_KIND = skBigram
                 buffer_load_dword vone, cvaddr, d_bigrams_res, 0 offen
             .endif
         .endif
+    .endif
         s_waitcnt vmcnt(0)
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
@@ -2765,8 +2785,13 @@ CUR_SCORE_KIND = skTrigram
         
         v_mad_u32_u24 cvaddr, ALPSIZE, cv, cvaddr
         s_waitcnt lgkmcnt(0)
+    .if SHORT_TRIGRAMS
+        v_mad_u32_u24 cvaddr, TRIGRAMS_PITCH>>1, cvaddr, cvaddr2
+        v_lshlrev_b32 cvaddr, 1, cvaddr
+    .else
         v_mad_u32_u24 cvaddr, TRIGRAMS_PITCH>>2, cvaddr, cvaddr2
         v_lshlrev_b32 cvaddr, 2, cvaddr
+    .endif
     
     /*.if DEBUG
         s_not_b64 exec, exec
@@ -2774,7 +2799,22 @@ CUR_SCORE_KIND = skTrigram
         s_not_b64 exec, exec
         DUMP_VREG cvaddr
     .endif*/
-        
+    
+    .if SHORT_TRIGRAMS
+        .iffmt amdcl2
+            .if32
+                buffer_load_ushort vone, cvaddr, bufres, trigramsData offen
+            .else
+                buffer_load_ushort vone, cvaddr, trigramsData_res, 0 offen
+            .endif
+        .elseiffmt amd
+            .if32
+                buffer_load_ushort vone, cvaddr, trigramsData_res, trigramsData offen
+            .else
+                buffer_load_ushort vone, cvaddr, trigramsData_res, 0 offen
+            .endif
+        .endif
+    .else
         .iffmt amdcl2
             .if32
                 buffer_load_dword vone, cvaddr, bufres, trigramsData offen
@@ -2788,6 +2828,7 @@ CUR_SCORE_KIND = skTrigram
                 buffer_load_dword vone, cvaddr, trigramsData_res, 0 offen
             .endif
         .endif
+    .endif
         s_waitcnt vmcnt(0)
     /*.if DEBUG
         DUMP_VREG vone

@@ -89,6 +89,9 @@ static clpp::Buffer resultsBuffer;
 static size_t trigramsBufferPitch;
 static clpp::Buffer trigramsBuffer;
 
+static bool shortBigrams = false;
+static bool shortTrigrams = false;
+
 #ifdef HAVE_CLRX
 using namespace CLRX;
 #endif
@@ -341,10 +344,13 @@ static bool prepareAssemblyOfClimbKernel()
     assembler.setDriverVersion(amdappVersion);
     assembler.addInitialDefSym("SCRAMBLER_PITCH", (28 + 15) & ~size_t(15));
     assembler.addInitialDefSym("SCRAMBLER_STRIDE", SCRAMBLER_STRIDE);
-    assembler.addInitialDefSym("TRIGRAMS_PITCH", sizeof(NGRAM_DATA_TYPE) * ALPSIZE);
+    assembler.addInitialDefSym("TRIGRAMS_PITCH",
+              (shortTrigrams ? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)) * ALPSIZE);
     assembler.addInitialDefSym("SCORE_KINDS", OpenCL_score_kinds);
     assembler.addInitialDefSym("TURNOVER_MODES", OpenCL_turnover_modes);
     assembler.addInitialDefSym("TASK_SIZE", OpenCL_cipher_length);
+    assembler.addInitialDefSym("SHORT_BIGRAMS", shortBigrams);
+    assembler.addInitialDefSym("SHORT_TRIGRAMS", shortTrigrams);
 #ifdef DEBUG_CLIMB
     if (debugPart!=-1)
       assembler.addInitialDefSym("DEBUG", DEBUG_DUMP);
@@ -521,7 +527,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
                     ___enigma_cuda_lib_opencl_program_cl_len);
   {
-    char optionsBuf[120];
+    char optionsBuf[150];
     size_t len = snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d"
             " -DSCRAMBLER_STRIDE=%d", OpenCL_cipher_length, SCRAMBLER_STRIDE);
 #ifdef HAVE_CLRX
@@ -531,6 +537,10 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 #endif
       snprintf(optionsBuf+len, (sizeof optionsBuf) - len,
                " -DWAVEFRONT_SIZE=%d", wavefrontSize);
+    if (shortBigrams)
+      strcat(optionsBuf, " -DSHORT_BIGRAMS=1");
+    if (shortTrigrams)
+      strcat(optionsBuf, " -DSHORT_TRIGRAMS=1");
     try
     { oclProgram.build(optionsBuf); }
     catch(const clpp::Error& error)
@@ -574,8 +584,8 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     d_fixedBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
   d_unigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
                     ALPSIZE*sizeof(NGRAM_DATA_TYPE));
-  d_bigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
-                    ALPSIZE*ALPSIZE*sizeof(NGRAM_DATA_TYPE));
+  d_bigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE*ALPSIZE *
+                  (shortBigrams ? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)));
 #ifdef DEBUG_CLIMB
   #if DEBUG_DUMP&1
   sregDumpBuffer = clpp::Buffer(oclContext, CL_MEM_WRITE_ONLY,
@@ -628,60 +638,112 @@ void CipherTextToDevice(string ciphertext_string)
     ClimbKernel.setArg(2, cl_uint(cipher.size()));
 }
 
-void NgramsToDevice(const string & uni_filename,        
+static std::unique_ptr<Unigrams> unigrams;
+static std::unique_ptr<Bigrams> bigrams;
+static std::unique_ptr<Trigrams> trigrams_obj;
+
+void LoadNgrams(const string & uni_filename,
             const string & bi_filename, const string & tri_filename)
 {
   if (uni_filename != "")
   {
-    Unigrams unigrams;
-    unigrams.LoadFromFile(uni_filename);
+    unigrams.reset(new Unigrams());
+    unigrams->LoadFromFile(uni_filename);
+  }
+  if (bi_filename != "")
+  {
+    bigrams.reset(new Bigrams());
+    shortBigrams = true;
+    bigrams->LoadFromFile(bi_filename);
+    for (int i = 0; i < ALPSIZE; i++)
+      for (int j = 0; j < ALPSIZE; j++)
+        if (bigrams->data[i][j]>0xffff || bigrams->data[i][j]<0)
+        { shortBigrams = false; break; }
+  }
+  if (tri_filename != "")
+  {
+    trigrams_obj.reset(new Trigrams());
+    shortTrigrams = true;
+    trigrams_obj->LoadFromFile(tri_filename);
+    for (int i = 0; i < ALPSIZE; i++)
+      for (int j = 0; j < ALPSIZE; j++)
+        for (int k = 0; k < ALPSIZE; k++)
+        if (trigrams_obj->data[i][j][k]>0xffff || trigrams_obj->data[i][j][k]<0)
+        { shortTrigrams = false; break; }
+  }
+  std::cerr << "Short bigrams: " << int(shortBigrams) <<
+        ", Short trigrams: "<< int(shortTrigrams) << std::endl;
+}
+
+void NgramsToDevice()
+{
+  if (unigrams)
+  {
     oclCmdQueue.writeBuffer(d_unigramsBuffer, 0,
-                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE, unigrams.data);
+                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE, unigrams->data);
 #ifdef DEBUG_CLIMB
-    ::memcpy(d_unigrams, unigrams.data, sizeof(d_unigrams));
+    ::memcpy(d_unigrams, unigrams->data, sizeof(d_unigrams));
 #endif
   }
 
-  if (bi_filename != "")
+  if (bigrams)
   {
-    Bigrams bigrams;
-    bigrams.LoadFromFile(bi_filename);
-    oclCmdQueue.writeBuffer(d_bigramsBuffer, 0,
-                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE, bigrams.data);
+    if (!shortBigrams)
+      oclCmdQueue.writeBuffer(d_bigramsBuffer, 0,
+                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE, bigrams->data);
+    else
+    {
+      clpp::BufferMapping mapping(oclCmdQueue, d_bigramsBuffer, true, CL_MAP_WRITE,
+                      0, sizeof(cl_ushort)*ALPSIZE*ALPSIZE);
+      cl_ushort* out = (cl_ushort*)mapping.get();
+      const NGRAM_DATA_TYPE* in = (const NGRAM_DATA_TYPE*)bigrams->data;
+      for (int i = 0; i < ALPSIZE*ALPSIZE; i++)
+        out[i] = in[i];
+    }
 #ifdef DEBUG_CLIMB
-    ::memcpy(d_bigrams, bigrams.data, sizeof(d_bigrams));
+    ::memcpy(d_bigrams, bigrams->data, sizeof(d_bigrams));
 #endif
   }
 
   trigramsBufferPitch = 0;
   trigramsBuffer = clpp::Buffer();
-  if (tri_filename != "")
+  if (trigrams_obj)
   {
-    //trigram data
-    Trigrams trigrams_obj;
-    trigrams_obj.LoadFromFile(tri_filename);
-
     //non-pitched array in device memory. slightly faster than pitched
     trigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
-                    sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
-    trigramsBufferPitch = sizeof(NGRAM_DATA_TYPE) * ALPSIZE;
+              (shortTrigrams? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)) * ALPSIZE_TO3);
+    trigramsBufferPitch =
+        (shortTrigrams ? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)) * ALPSIZE;
 #ifdef DEBUG_CLIMB
     trigramsData = (NGRAM_DATA_TYPE*)malloc(sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
     task.trigrams.data = (int8_t*)trigramsData;
-    task.trigrams.pitch = trigramsBufferPitch;
+    task.trigrams.pitch = sizeof(NGRAM_DATA_TYPE) * ALPSIZE;
     
     //data to device
-    ::memcpy(trigramsData, trigrams_obj.data, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
+    ::memcpy(trigramsData, trigrams_obj->data, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
 #endif
     //data to device
-    oclCmdQueue.writeBuffer(trigramsBuffer, 0, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3,
-                  trigrams_obj.data);
+    if (!shortTrigrams)
+      oclCmdQueue.writeBuffer(trigramsBuffer, 0, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3,
+                  trigrams_obj->data);
+    else
+    {
+      clpp::BufferMapping mapping(oclCmdQueue, trigramsBuffer, true, CL_MAP_WRITE,
+                      0, sizeof(cl_ushort)*ALPSIZE_TO3);
+      cl_ushort* out = (cl_ushort*)mapping.get();
+      const NGRAM_DATA_TYPE* in = (const NGRAM_DATA_TYPE*)trigrams_obj->data;
+      for (int i = 0; i < ALPSIZE_TO3; i++)
+        out[i] = in[i];
+    }
   }
 #ifdef HAVE_CLRX
   if (!useClrxAssembly)
 #endif
     ClimbKernel.setArg(5, cl_uint(trigramsBufferPitch));
   ClimbKernel.setArg(6 - 3*int(useClrxAssembly), trigramsBuffer);
+  unigrams.reset();
+  bigrams.reset();
+  trigrams_obj.reset();
 }
 
 void OrderToDevice(const int8_t * order)
@@ -1853,4 +1915,8 @@ void CleanUpGPU()
   oclProgram = clpp::Program();
   oclClrxProgram = clpp::Program();
   oclContext = clpp::Context();
+  
+  unigrams.reset();
+  bigrams.reset();
+  trigrams_obj.reset();
 }
