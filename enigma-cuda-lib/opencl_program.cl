@@ -593,11 +593,11 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
     //element of results[] to store the output 
     linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
     result = &taskResults[linear_idx];
-    result->index = linear_idx;
-    result->score = -1;
   }
   if (lid == 0)
   {
+    result->index = linear_idx;
+    result->score = -1;
     skip_this_key = ((gxnum > 1) &&
       (GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
         & turnover_modes) == 0);
