@@ -10,6 +10,8 @@
  * SCRAMBLER_STRIDE - scrambler stride
  * SCORE_KINDS - score_kinds
  * TURNOVER_MODES - turnover_modes
+ * SHORT_BIGRAMS - if nonzero then bigrams stored in ushort instead int
+ * SHORT_TRIGRAMS - if nonzero then trigrams stored in ushort instead int
  */
 
 .nomacrocase
