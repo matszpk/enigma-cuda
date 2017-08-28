@@ -62,6 +62,7 @@ extern void PlugboardToDevice(const Plugboard & plugboard);
 extern void SetUpResultsMemory(int count);
 extern void InitializeArrays(const string cipher_string, int turnover_modes,
   int score_kinds, int digits = 3);
+extern void ClimbInit(bool single_key);
 extern Result Climb(int cipher_length, const Key & key, bool single_key);
 extern Result GetBestResult(int count);
 extern string DecodeMessage(const string & ciphertext,

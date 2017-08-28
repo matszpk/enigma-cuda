@@ -127,6 +127,9 @@ bool Runner::Run()
           ShowProgressString(true);
         }
         GenerateScrambler(iterator.key);
+#ifdef HAVE_OPENCL
+        ClimbInit(settings.single_key);
+#endif
 
         //for each ring settings
         do
