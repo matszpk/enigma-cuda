@@ -697,8 +697,6 @@ PRINT_INFO = 1
                 .print "TriScore Test"
             .endif
         .endif
-    .else
-        .print "FullRoutine Test"
     .endif
 .endif
 

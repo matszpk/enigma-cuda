@@ -734,8 +734,10 @@ void LoadNgrams(const string & uni_filename,
         if (trigrams_obj->data[i][j][k]>0xffff || trigrams_obj->data[i][j][k]<0)
         { shortTrigrams = false; break; }
   }
+#ifdef DEBUG_CLIMB
   std::cerr << "Short bigrams: " << int(shortBigrams) <<
         ", Short trigrams: "<< int(shortTrigrams) << std::endl;
+#endif
 }
 
 void NgramsToDevice()
