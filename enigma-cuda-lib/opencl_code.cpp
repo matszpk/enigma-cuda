@@ -2022,7 +2022,7 @@ Result GetBestResult(int count)
   
   bool swapped = true;
   int s = grid_size;
-  while (s > 1)
+  while (s > 40)
   {
     ComputeDimensions(s, grid_size, block_size);
     const clpp::Kernel& kernel = swapped ? FindBestResultKernel2 : FindBestResultKernel;
@@ -2031,10 +2031,18 @@ Result GetBestResult(int count)
     s = (s + (block_size * 2 - 1)) / (block_size * 2);
     swapped = !swapped;
   }
-  Result result;
+  Result tempResults[40];
   oclCmdQueue.readBuffer(swapped ? d_tempBuffer : resultsBuffer,
-                         0, sizeof(Result), &result);
-  return result;
+                         0, sizeof(Result)*s, tempResults);
+  int best_score = -1;
+  int best_index = 0;
+  for (int i = 0; i < s; i++)
+    if (tempResults[i].score > best_score)
+    {
+      best_score = tempResults[i].score;
+      best_index = i;
+    }
+  return tempResults[best_index];
 }
 
 
