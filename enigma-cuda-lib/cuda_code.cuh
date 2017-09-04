@@ -33,6 +33,7 @@ struct Block
  
 extern Task h_task;
 
+#ifdef _WIN32
 __constant__ extern int8_t d_ciphertext[MAX_MESSAGE_LENGTH];
 __constant__ extern Wiring d_wiring;
 __constant__ extern Key d_key;
@@ -40,6 +41,7 @@ __constant__ extern NGRAM_DATA_TYPE d_unigrams[ALPSIZE];
 __constant__ extern int8_t d_order[ALPSIZE];
 __constant__ extern int8_t d_plugs[ALPSIZE];
 extern Result * d_temp;
+#endif
 
 
 extern "C"
