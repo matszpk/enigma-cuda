@@ -605,10 +605,10 @@ PRINT_INFO = 1
                 .print "TriScore Test"
             .endif
         .endif
-    .else
-        .print "FullRoutine Test"
     .endif
 .endif
+
+.print "GCN Assembly Optimization 0.1"
 
 ####
 # defs
