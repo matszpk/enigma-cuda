@@ -11,13 +11,13 @@ XXD = xxd
 CFLAGS = -Wall -O2
 CXXFLAGS = -Wall -O2 -std=c++11
 LDFLAGS = -Wall -O2 -std=c++11
-NVCCFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11 --gpu-architecture=compute_50
-NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11 --gpu-architecture=compute_50
+NVCCFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
+NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
 #CFLAGS = -Wall -g
 #CXXFLAGS = -Wall -g -std=c++11
 #LDFLAGS = -Wall -g -std=c++11
-#NVCCFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11 --gpu-architecture=compute_50
-#NVLDFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11 --gpu-architecture=compute_50
+#NVCCFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
+#NVLDFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
 NVLD = nvcc
 LD = g++-5
 INCDIRS = -I../enigma-cuda-lib

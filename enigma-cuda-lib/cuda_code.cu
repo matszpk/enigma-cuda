@@ -373,15 +373,12 @@ void Sum(int count, volatile int * data, int * sum)
 
   if (threadIdx.x < 32)
   {
-    int sum0 = 0;
-    if (threadIdx.x < count) sum0 = data[threadIdx.x];
-    if ((threadIdx.x + 32) < count) sum0 += data[32 + threadIdx.x];
-    __shfl_xor(sum0, 16, 32);
-    __shfl_xor(sum0, 8, 32);
-    __shfl_xor(sum0, 4, 32);
-    __shfl_xor(sum0, 2, 32);
-    __shfl_xor(sum0, 1, 32);
-    if (threadIdx.x == 0) *sum = sum0;
+    if ((threadIdx.x + 32) < count) data[threadIdx.x] += data[32 + threadIdx.x];
+    if ((threadIdx.x + 16) < count) data[threadIdx.x] += data[16 + threadIdx.x];
+    data[threadIdx.x] += data[8 + threadIdx.x];
+    data[threadIdx.x] += data[4 + threadIdx.x];
+    data[threadIdx.x] += data[2 + threadIdx.x];
+    if (threadIdx.x == 0) *sum = data[0] + data[1];
   }
   __syncthreads();
 }
@@ -410,11 +407,10 @@ void IcScore(Block & block, const int8_t * scrambling_table)
   //sum up
   if (threadIdx.x < HISTO_SIZE / 2)
   {
-    int sum0 = block.score_buf[threadIdx.x];
-    __shfl_xor(sum0, 8, 32);
-    __shfl_xor(sum0, 4, 32);
-    __shfl_xor(sum0, 2, 32);
-    __shfl_xor(sum0, 1, 32);
+    block.score_buf[threadIdx.x] += block.score_buf[threadIdx.x + 16];
+    block.score_buf[threadIdx.x] += block.score_buf[threadIdx.x + 8];
+    block.score_buf[threadIdx.x] += block.score_buf[threadIdx.x + 4];
+    block.score_buf[threadIdx.x] += block.score_buf[threadIdx.x + 2];
     if (threadIdx.x == 0) block.score = block.score_buf[0] + block.score_buf[1];
   }
 
