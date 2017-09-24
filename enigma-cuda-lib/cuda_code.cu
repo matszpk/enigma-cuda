@@ -411,11 +411,12 @@ void IcScore(Block & block, const int8_t * scrambling_table)
   if (threadIdx.x < HISTO_SIZE / 2)
   {
     int sum0 = block.score_buf[threadIdx.x];
+    __shfl_xor(sum0, 16, 32);
     __shfl_xor(sum0, 8, 32);
     __shfl_xor(sum0, 4, 32);
     __shfl_xor(sum0, 2, 32);
     __shfl_xor(sum0, 1, 32);
-    if (threadIdx.x == 0) block.score = block.score_buf[0] + block.score_buf[1];
+    if (threadIdx.x == 0) block.score = sum0;
   }
 
   __syncthreads();
