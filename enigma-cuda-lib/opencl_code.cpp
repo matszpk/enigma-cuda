@@ -6,7 +6,6 @@
 
 #define __CLPP_CL_ABI_VERSION 101
 #define __CLPP_CL_VERSION 101
-#define __CLPP_CL_EXT 1
 
 #include <stdexcept>
 #include <iostream>
@@ -43,7 +42,7 @@
 //#define DEBUG_RESULTS 1
 
 // comment when application must accept any OpenCL platform
-#define ACCEPT_ONLY_PREFERRED_PLATFORM 1
+//#define ACCEPT_ONLY_PREFERRED_PLATFORM 1
 // for AMD
 #define PLATFORM_VENDOR "Advanced Micro Devices, Inc."
 // for NVIDIA
@@ -333,12 +332,39 @@ void setUpConfig(int turnover_modes, int score_kinds, int cipher_length)
 #ifdef HAVE_CLRX
 static bool prepareAssemblyOfClimbKernel()
 {
+  std::string platformName = oclDevice.getPlatform().getName();
+  platformName = trimSpaces(platformName);
+  BinaryFormat binaryFormat = (platformName=="Clover") ? BinaryFormat::GALLIUM :
+            BinaryFormat::AMD;
+  
   GPUDeviceType devType = GPUDeviceType::CAPE_VERDE;
+  std::string deviceName = oclDevice.getName();
+  std::string deviceVersion = oclDevice.getVersion();
+  deviceName = trimSpaces(deviceName);
   try
   {
-    std::string deviceName = oclDevice.getName();
-    deviceName = trimSpaces(deviceName);
-    devType = getGPUDeviceTypeFromName(deviceName.c_str());
+    if (binaryFormat == BinaryFormat::GALLIUM)
+    {
+      const char* sptr = ::strstr(deviceName.c_str(), "(AMD ");
+      const char* devNamePtr = deviceName.c_str();
+      // if form 'AMD Radeon xxx (AMD CODENAME /...)
+      if (sptr != nullptr) // if found 'AMD ';
+          devNamePtr = sptr+5;
+      else
+      {
+          // if form 'AMD CODENAME (....
+          sptr = ::strstr(deviceName.c_str(), "AMD ");
+          if (sptr != nullptr) // if found 'AMD ';
+              devNamePtr = sptr+4;
+      }
+      const char* devNameEnd = devNamePtr;
+      while (isAlnum(*devNameEnd)) devNameEnd++;
+      string devNameTmp(devNamePtr, devNameEnd);
+      std::cout << "Gallium devName: " << devNameTmp << std::endl;
+      devType = getGPUDeviceTypeFromName(devNameTmp.c_str());
+    }
+    else // AMD-APP
+      devType = getGPUDeviceTypeFromName(deviceName.c_str());
   }
   catch(const CLRX::Exception& ex)
   { return false; }
@@ -350,24 +376,81 @@ static bool prepareAssemblyOfClimbKernel()
     useCL1 = clrxClimbLegacy!=NULL && ::strcmp(clrxClimbLegacy, "1")==0;
   }
   
+  cxuint mesaVersion = 0;
+  cxuint llvmVersion = 0;
   cxuint amdappVersion = 0;
+  if (binaryFormat == BinaryFormat::AMD || binaryFormat == BinaryFormat::AMDCL2)
   {
     const std::string driverVersion = oclDevice.getDriverVersion();
     cxuint major, minor;
     sscanf(driverVersion.c_str(), "%u.%u", &major, &minor);
     amdappVersion = major*100+minor;
+    if (amdappVersion < 138400)
+      return false; // old driver not supported
   }
-  if (amdappVersion < 138400)
-    return false; // old driver not supported
-  BinaryFormat binaryFormat = BinaryFormat::AMD;
+  
   bool defaultCL2ForDriver = false;
   if (amdappVersion >= 200406 && !useCL1)
     defaultCL2ForDriver = true;
   
-  if (defaultCL2ForDriver && arch >= GPUArchitecture::GCN1_1)
+  if (binaryFormat == BinaryFormat::GALLIUM)
+  {
+    const char* llvmPart = strstr(deviceName.c_str(), "LLVM ");
+    if (llvmPart!=nullptr)
+    {
+      try
+      {
+        // parse LLVM version
+        const char* majorVerPart = llvmPart+5;
+        const char* minorVerPart;
+        const char* end;
+        cxuint majorVersion = cstrtoui(majorVerPart, nullptr, minorVerPart);
+        if (*minorVerPart!=0)
+        {
+          minorVerPart++; // skip '.'
+          cxuint minorVersion = cstrtoui(minorVerPart, nullptr, end);
+          llvmVersion = majorVersion*10000U + minorVersion*100U;
+        }
+      }
+      catch(const ParseException& ex)
+      { } // ignore error
+    }
+    
+    const char* mesaPart = strstr(deviceVersion.c_str(), "Mesa ");
+    if (mesaPart==nullptr)
+        mesaPart = strstr(deviceVersion.c_str(), "MESA ");
+    if (mesaPart!=nullptr)
+    {
+      try
+      {
+        // parse Mesa3D version
+        const char* majorVerPart = mesaPart+5;
+        const char* minorVerPart;
+        const char* end;
+        cxuint majorVersion = cstrtoui(majorVerPart, nullptr, minorVerPart);
+        if (*minorVerPart!=0)
+        {
+          minorVerPart++; // skip '.'
+          cxuint minorVersion = cstrtoui(minorVerPart, nullptr, end);
+          mesaVersion = majorVersion*10000U + minorVersion*100U;
+        }
+      }
+      catch(const ParseException& ex)
+      { } // ignore error
+    }
+  }
+  
+  if (binaryFormat==BinaryFormat::AMD && defaultCL2ForDriver &&
+        arch >= GPUArchitecture::GCN1_1)
     binaryFormat = BinaryFormat::AMDCL2;
   
-  const cl_uint bits = oclDevice.getAddressBits();
+  cl_uint bits = 32;
+  if (binaryFormat == BinaryFormat::AMD || binaryFormat == BinaryFormat::AMDCL2)
+    bits = oclDevice.getAddressBits();
+  else if (binaryFormat == BinaryFormat::GALLIUM && sizeof(void*)==8)
+  {
+    bits = (llvmVersion>=30900) ? 64 : 32;
+  }
   // try to compile code
   Array<cxbyte> binary;
   const char* asmSource = (const char*)___enigma_cuda_lib_climb_clrx;
@@ -376,7 +459,15 @@ static bool prepareAssemblyOfClimbKernel()
     ArrayIStream astream(asmSourceSize, asmSource);
     Assembler assembler("", astream, 0, binaryFormat, devType, std::cerr, std::cerr);
     assembler.set64Bit(bits==64);
-    assembler.setDriverVersion(amdappVersion);
+    if (binaryFormat == BinaryFormat::AMD || binaryFormat == BinaryFormat::AMDCL2)
+      assembler.setDriverVersion(amdappVersion);
+    else
+    {
+      std::cerr << "Mesa3D version: " << mesaVersion << std::endl;
+      assembler.setDriverVersion(mesaVersion);
+      std::cerr << "LLVM version: " << llvmVersion << std::endl;
+      assembler.setLLVMVersion(llvmVersion);
+    }
     assembler.addInitialDefSym("SCRAMBLER_PITCH", (28 + 15) & ~size_t(15));
     assembler.addInitialDefSym("SCRAMBLER_STRIDE", SCRAMBLER_STRIDE);
     assembler.addInitialDefSym("TRIGRAMS_PITCH",
