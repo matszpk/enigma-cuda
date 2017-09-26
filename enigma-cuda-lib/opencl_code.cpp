@@ -95,6 +95,7 @@ static clpp::Buffer climbTempBuffer;
 
 static bool shortBigrams = false;
 static bool shortTrigrams = false;
+static bool haveGallium = false;
 
 #ifdef HAVE_CLRX
 using namespace CLRX;
@@ -337,6 +338,8 @@ static bool prepareAssemblyOfClimbKernel()
   BinaryFormat binaryFormat = (platformName=="Clover") ? BinaryFormat::GALLIUM :
             BinaryFormat::AMD;
   
+  haveGallium = (binaryFormat == BinaryFormat::GALLIUM);
+  
   GPUDeviceType devType = GPUDeviceType::CAPE_VERDE;
   std::string deviceName = oclDevice.getName();
   std::string deviceVersion = oclDevice.getVersion();
@@ -360,7 +363,6 @@ static bool prepareAssemblyOfClimbKernel()
       const char* devNameEnd = devNamePtr;
       while (isAlnum(*devNameEnd)) devNameEnd++;
       string devNameTmp(devNamePtr, devNameEnd);
-      std::cout << "Gallium devName: " << devNameTmp << std::endl;
       devType = getGPUDeviceTypeFromName(devNameTmp.c_str());
     }
     else // AMD-APP
@@ -647,6 +649,13 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   if (!disableClrxAssembly)
     useClrxAssembly = prepareAssemblyOfClimbKernel();
 #endif
+  
+  if (!useClrxAssembly && haveGallium)
+  {
+    std::cerr << "GalliumCompute OpenCL can generate incorrect "
+          "OpenCL code for this program!" << std::endl;
+    return false;
+  }
   
   int wavefrontSize = 0;
 #ifdef HAVE_CLRX
