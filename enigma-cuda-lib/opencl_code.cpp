@@ -36,15 +36,18 @@
 #define CL_DEVICE_BOARD_NAME_AMD                    0x4038
 #endif
 
+//#define DEBUG_GENSCRAMBLER 1
 //#define DEBUG_CLIMBINIT 1
 //#define DEBUG_CLIMB 1
 #define DEBUG_DUMP 0
 //#define DEBUG_RESULTS 1
+//#define DEBUG_BESTRESULT 1
 
 // comment when application must accept any OpenCL platform
-//#define ACCEPT_ONLY_PREFERRED_PLATFORM 1
+#define ACCEPT_ONLY_PREFERRED_PLATFORM 1
 // for AMD
 #define PLATFORM_VENDOR "Advanced Micro Devices, Inc."
+#define PLATFORM_VENDOR_2 "Mesa"
 // for NVIDIA
 //#define PLATFORM_VENDOR "NVIDIA Corporation"
 
@@ -292,7 +295,7 @@ void GenerateScrambler(const Key & key)
   clpp::Size3 dimBlock(GenerateScramblerKernelWGSize, 1, 1);
   dimGrid[0] *= dimBlock[0];
   oclCmdQueue.enqueueNDRangeKernel(GenerateScramblerKernel, dimGrid, dimBlock);
-#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT) || defined(DEBUG_GENSCRAMBLER)
   d_key = key;
   // for comparison
   dim3 threadIdx = { 0, 0 ,0 };
@@ -302,6 +305,33 @@ void GenerateScrambler(const Key & key)
           for (blockIdx.x = 0; blockIdx.x < ALPSIZE; blockIdx.x++)
               for (threadIdx.x = 0; threadIdx.x < ALPSIZE; threadIdx.x++)
                   GenerateScramblerKernelHost(blockIdx, threadIdx);
+  #ifdef DEBUG_GENSCRAMBLER
+  std::cout << "Checking GenerateScrambler" << std::endl;
+  bool error = false;
+  // compare results
+  {
+    clpp::BufferMapping mapping(oclCmdQueue, scramblerDataBuffer, true, CL_MAP_READ, 0, 
+                          scramblerDataPitch*ALPSIZE_TO3);
+    const int8_t* scramblerResult = (const int8_t*)mapping.get();
+    for (size_t i = 0; i < ALPSIZE_TO3; i++)
+    {
+      const int8_t* exentry = task.scrambler.data + scramblerDataPitch*i;
+      const int8_t* resentry = scramblerResult + scramblerDataPitch*i;
+      for (size_t j = 0; j < ALPSIZE; j++)
+        if (exentry[j] != resentry[j])
+        {
+          error = true;
+          std::cerr << "Scrambler data not match in [" << i << "," << j << "]: " <<
+              int(exentry[j]) << "!=" << int(resentry[j]) << "\n";
+        }
+    }
+  }
+  if (error)
+  {
+    std::cout << "\nhave errors\n";
+    exit(1);
+  }
+  #endif
 #endif
 }
 
@@ -543,7 +573,11 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   {
     std::string vendor = platforms[i].getVendor();
     vendor = trimSpaces(vendor);
+#ifdef PLATFORM_VENDOR_2
+    if (vendor==PLATFORM_VENDOR || vendor==PLATFORM_VENDOR_2)
+#else
     if (vendor==PLATFORM_VENDOR)
+#endif
     {
       platformIndex = i;
       break;
@@ -552,11 +586,22 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   if (platformIndex==-1)
   {
 #ifdef ACCEPT_ONLY_PREFERRED_PLATFORM
-    std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR <<
+    std::cerr << "Preferred OpenCL platform vendor (" <<
+#ifdef PLATFORM_VENDOR_2
+                PLATFORM_VENDOR << " or " << PLATFORM_VENDOR_2 <<
+#else
+                PLATFORM_VENDOR <<
+#endif
           ") not found." << std::endl;
     return false; // not found
 #else
-    std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR << ") not found.\r\n"
+    std::cerr << "Preferred OpenCL platform vendor (" <<
+#ifdef PLATFORM_VENDOR_2
+                PLATFORM_VENDOR << " or " << PLATFORM_VENDOR_2 <<
+#else
+                PLATFORM_VENDOR <<
+#endif
+                ") not found.\r\n"
         "Use first OpenCL platform\r\n";
     platformIndex = 0;
 #endif
@@ -2107,6 +2152,25 @@ void ComputeDimensions(int count, int & grid_size, int & block_size)
 Result GetBestResult(int count)
 {
   int grid_size, block_size;
+#ifdef DEBUG_BESTRESULT
+  Result expectedResult;
+  std::unique_ptr<Result[]> allResults(new Result[count]);
+  { //
+    clpp::BufferMapping mapping(oclCmdQueue, resultsBuffer, true, CL_MAP_READ,
+                    0, sizeof(Result)*count);
+    const Result* results = (const Result*)mapping.get();
+    int best_score = -1;
+    ::memcpy(allResults.get(), results, sizeof(Result)*count);
+    for (int i = 0; i < count; i++)
+      if (results[i].score > best_score)
+      {
+        //std::cout << "best result index: " << i << std::endl;
+        best_score = results[i].score;
+        expectedResult = results[i];
+      }
+  }
+#endif
+  
   ComputeDimensions(count, grid_size, block_size);
   
   if (d_tempSize < grid_size*sizeof(Result) || d_tempBuffer()==NULL)
@@ -2144,6 +2208,36 @@ Result GetBestResult(int count)
       best_score = tempResults[i].score;
       best_index = i;
     }
+#ifdef DEBUG_BESTRESULT
+  bool error = false;
+  Result result = tempResults[best_index];
+  // compare result
+  std::cout << "\nChecking FindBestResult\n";
+  if (expectedResult.score != result.score)
+  {
+    std::cerr << "Result score not match: " << expectedResult.score << "!=" <<
+            result.score << "\n";
+    error = true;
+  }
+  if (expectedResult.index != result.index)
+  {
+    std::cerr << "Result index not match: " << expectedResult.index << "!=" <<
+            result.index << "\n";
+    error = true;
+  }
+  for (int i = 0; i < ALPSIZE; i++)
+    if (expectedResult.plugs[i] != result.plugs[i])
+    {
+        std::cerr << "Result plugs[" << i << "] not match: " <<
+              int(expectedResult.plugs[i]) << "!=" << int(result.plugs[i]) << "\n";
+        error = true;
+    }
+  if (error)
+  {
+    std::cout << "\nhave errors\n";
+    exit(1);
+  }
+#endif
   return tempResults[best_index];
 }
 
