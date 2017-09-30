@@ -727,7 +727,7 @@ PRINT_INFO = 1
     .endif
 .endif
 
-.print "GCN Assembly Optimization 0.2"
+.print "GCN Assembly Optimization 0.2r1"
 
 ####
 # defs

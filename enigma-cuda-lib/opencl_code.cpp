@@ -495,9 +495,7 @@ static bool prepareAssemblyOfClimbKernel()
       assembler.setDriverVersion(amdappVersion);
     else
     {
-      std::cerr << "Mesa3D version: " << mesaVersion << std::endl;
       assembler.setDriverVersion(mesaVersion);
-      std::cerr << "LLVM version: " << llvmVersion << std::endl;
       assembler.setLLVMVersion(llvmVersion);
     }
     assembler.addInitialDefSym("SCRAMBLER_PITCH", (28 + 15) & ~size_t(15));
