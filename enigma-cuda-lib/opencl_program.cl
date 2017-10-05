@@ -17,6 +17,16 @@
 #define REDUCE_MAX_THREADS 256
 
 #define NGRAM_DATA_TYPE int
+#ifdef SHORT_BIGRAMS
+#define NGRAM_DATA_TYPE_BIGRAM ushort
+#else
+#define NGRAM_DATA_TYPE_BIGRAM int
+#endif
+#ifdef SHORT_TRIGRAMS
+#define NGRAM_DATA_TYPE_TRIGRAM ushort
+#else
+#define NGRAM_DATA_TYPE_TRIGRAM int
+#endif
 
 typedef signed char int8_t;
 typedef unsigned char uint8_t;
@@ -251,8 +261,69 @@ int ComputeScramblerIndex(int char_pos,
     mod26(sett->r_mesg - sett->r_ring + char_pos + 1);
 }
 
+int ComputeScramblerIndexPriv(int char_pos, 
+  const constant ScramblerStructure* stru,
+  const private RotorSettings* sett, const constant Wiring* wiring)
+{
+  //retrieve notch info
+  const constant int8_t * r_notch = wiring->notch_positions[stru->r_slot];
+  const constant int8_t * m_notch = wiring->notch_positions[stru->m_slot];
+
+  //period of the rotor turnovers
+  int m_period = (r_notch[1] == NONE) ? ALPSIZE : HALF_ALPSIZE;
+  int l_period = (m_notch[1] == NONE) ? ALPSIZE : HALF_ALPSIZE;
+  l_period = (l_period-1) * m_period;
+
+  //current wheel position relative to the last notch
+  int r_after_notch = sett->r_mesg - r_notch[0];
+  if (r_after_notch < 0) r_after_notch += ALPSIZE;
+  if (r_notch[1] != NONE && r_after_notch >= (r_notch[1] - r_notch[0]))
+    r_after_notch -= r_notch[1] - r_notch[0];
+
+  int m_after_notch = sett->m_mesg - m_notch[0];
+  if (m_after_notch < 0) m_after_notch += ALPSIZE;
+  if (m_notch[1] != NONE && m_after_notch >= (m_notch[1] - m_notch[0]))
+    m_after_notch -= m_notch[1] - m_notch[0];
+
+  //middle wheel turnover phase
+  int m_phase = r_after_notch - 1;
+  if (m_phase < 0) m_phase += m_period;
+
+  //left wheel turnover phase
+  int l_phase = m_phase - 1 + (m_after_notch - 1) * m_period;
+  if (l_phase < 0) l_phase += l_period;
+
+  //hacks
+  if (m_after_notch == 0) l_phase += m_period;
+  if (m_after_notch == 1 && r_after_notch == 1)
+    l_phase -= l_period; //effectively sets l_phase to -1
+  if (m_after_notch == 0 && r_after_notch == 0)
+  {
+    m_phase -= m_period;
+    l_phase -= m_period;
+    if (char_pos == 0) l_phase++;
+  }
+
+  //save debug info
+  //	r_after_notch_display = r_after_notch;
+  //	m_after_notch_display = m_after_notch;
+  //	l_phase_display = l_phase;
+
+  //number of turnovers
+  int m_steps = (m_phase + char_pos + 1) / m_period;
+  int l_steps = (l_phase + char_pos + 1) / l_period;
+
+  //double step of the middle wheel
+  m_steps += l_steps;
+
+  //rotor core poistions to scrambling table index
+  return mod26(sett->l_mesg - sett->l_ring + l_steps) * ALPSIZE_TO2 +
+    mod26(sett->m_mesg - sett->m_ring + m_steps) * ALPSIZE +
+    mod26(sett->r_mesg - sett->r_ring + char_pos + 1);
+}
+
 TurnoverLocation GetTurnoverLocation(const constant ScramblerStructure* stru,
-  const local RotorSettings* sett, int ciphertext_length, const constant Wiring* wiring)
+  const private RotorSettings* sett, int ciphertext_length, const constant Wiring* wiring)
 {
   //rotors with two notches
     if (stru->r_slot > rotV && sett->r_ring >= HALF_ALPSIZE) 
@@ -262,13 +333,13 @@ TurnoverLocation GetTurnoverLocation(const constant ScramblerStructure* stru,
 
   //does the left hand rotor turn right before the message?
   int8_t l_core_before = mod26(sett->l_mesg - sett->l_ring);
-    int8_t l_core_first = ComputeScramblerIndex(0, stru, sett, wiring)
+    int8_t l_core_first = ComputeScramblerIndexPriv(0, stru, sett, wiring)
         / ALPSIZE_TO2;
   if (l_core_first != l_core_before) return toBeforeMessage;
 
   //does it turn during the message?
     int8_t l_core_last = 
-        ComputeScramblerIndex(ciphertext_length-1, stru, sett, wiring) 
+        ComputeScramblerIndexPriv(ciphertext_length-1, stru, sett, wiring) 
         / ALPSIZE_TO2;
   if (l_core_last != l_core_first) return toDuringMessage;
 
@@ -422,7 +493,7 @@ void UniScore(local Block * block, const local int8_t * scrambling_table,
 
 void BiScore(local Block * block, const local int8_t* scrambling_table,
               const constant int8_t* d_ciphertext,
-              const constant NGRAM_DATA_TYPE* d_bigrams, uint lid)
+              const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams, uint lid)
 {
   if (lid < block->count)
     block->plain_text[lid] = Decode(block->plugs, scrambling_table, d_ciphertext, lid);
@@ -442,7 +513,7 @@ void BiScore(local Block * block, const local int8_t* scrambling_table,
 
 void TriScore(local Block * block, const local int8_t* scrambling_table,
                   const constant int8_t* d_ciphertext,
-                  const global NGRAM_DATA_TYPE* trigrams, uint lid)
+                  const global NGRAM_DATA_TYPE_TRIGRAM* trigrams, uint lid)
 {
   //decode char
   if (lid < block->count) 
@@ -462,8 +533,8 @@ void TriScore(local Block * block, const local int8_t* scrambling_table,
 
 void CalculateScore(local Block * block, const local int8_t * scrambling_table,
           const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams,
-          const global NGRAM_DATA_TYPE* trigrams, uint lid)
+          const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
+          const global NGRAM_DATA_TYPE_TRIGRAM* trigrams, uint lid)
 {
   switch (block->score_kind)
   {
@@ -479,8 +550,8 @@ void CalculateScore(local Block * block, const local int8_t * scrambling_table,
 //------------------------------------------------------------------------------
 void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
           local Block * block, const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams,
-          const global NGRAM_DATA_TYPE* trigrams,
+          const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
+          const global NGRAM_DATA_TYPE_TRIGRAM* trigrams,
           local int* old_score, const constant int8_t* d_fixed, uint lid)
 {
   int8_t x, z;
@@ -518,8 +589,8 @@ void TrySwap(int8_t i, int8_t k, const local int8_t * scrambling_table,
 
 void MaximizeScore(local Block * block, const local int8_t * scrambling_table,
           const constant int8_t* d_ciphertext,
-          const constant NGRAM_DATA_TYPE* d_bigrams,
-          const global NGRAM_DATA_TYPE* trigrams,
+          const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
+          const global NGRAM_DATA_TYPE_TRIGRAM* trigrams,
           local int* old_score, const constant int8_t* d_order,
           const constant int8_t* d_fixed, uint lid)
 {
@@ -531,16 +602,54 @@ void MaximizeScore(local Block * block, const local int8_t * scrambling_table,
               trigrams, old_score, d_fixed, lid);
 }
 
+typedef struct _ClimbTempEntry
+{
+    RotorSettings sett;
+    int skip_this_key;
+    int unused1, unused2, unused3;
+} ClimbTempEntry;
+
+kernel void ClimbInitKernel(const constant Wiring* d_wiring, const constant Key* d_key,
+            int tasksNum, int taskCount, int turnover_modes,
+            global ClimbTempEntry* tempData)
+{
+  const uint gidx = get_global_id(0);
+  RotorSettings sett;
+  bool skip_this_key;
+  if (gidx >= tasksNum) return;
+  
+  //ring and rotor settings to be tried
+  sett.g_ring = 0;
+  sett.l_ring = 0;
+
+  //depending on the grid size, ring positions 
+  //either from grid index or fixed (from d_key)
+  sett.m_ring = d_key->sett.m_ring;
+  sett.r_ring = d_key->sett.r_ring;
+
+  sett.g_mesg = d_key->sett.g_mesg;
+  sett.l_mesg = (tasksNum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key->sett.l_mesg;
+  sett.m_mesg = (tasksNum > ALPSIZE) ? (gidx / ALPSIZE) % ALPSIZE : d_key->sett.m_mesg;
+  sett.r_mesg = (tasksNum > 1) ? gidx % ALPSIZE : d_key->sett.r_mesg;
+  
+  skip_this_key = ((tasksNum > 1) &&
+      (GetTurnoverLocation(&(d_key->stru), &sett, taskCount, d_wiring)
+        & turnover_modes) == 0);
+  
+  tempData[gidx].sett = sett;
+  tempData[gidx].skip_this_key = skip_this_key;
+}
 
 kernel void ClimbKernel(const constant Wiring* d_wiring,
             const constant Key* d_key, int taskCount,
             const uint scramblerDataPitch, const global int8_t* scramblerData,
-            const uint trigramsDataPitch, const global NGRAM_DATA_TYPE* trigramsData,
+            const uint trigramsDataPitch, const global NGRAM_DATA_TYPE_TRIGRAM* trigramsData,
             const constant NGRAM_DATA_TYPE* d_unigrams,
-            const constant NGRAM_DATA_TYPE* d_bigrams,
+            const constant NGRAM_DATA_TYPE_BIGRAM* d_bigrams,
             const constant int8_t* d_plugs, const constant int8_t* d_order,
             const constant int8_t* d_fixed, const constant int8_t* d_ciphertext,
             global Result* taskResults,
+            const global ClimbTempEntry* tempData,
             int turnover_modes, int score_kinds, local int8_t* shared_scrambling_table)
 {
   local Block block;
@@ -551,9 +660,20 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   const uint gidx = get_group_id(0);
   const uint gidy = get_group_id(1);
   const uint gidz = get_group_id(2);
-  const uint gxnum = get_num_groups(0);
-  const uint gynum = get_num_groups(1);
   int linear_idx;
+  
+  linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
+  result = &taskResults[linear_idx];
+  
+  if (lid == 0)
+  {
+    result->index = linear_idx;
+    result->score = -1;
+    skip_this_key = tempData[linear_idx].skip_this_key;
+  }
+  
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (skip_this_key) return;
   
   if (lid < ALPSIZE)
   {
@@ -564,37 +684,11 @@ kernel void ClimbKernel(const constant Wiring* d_wiring,
   if (lid == 0)
   {
     block.count = taskCount;
-    
-    //ring and rotor settings to be tried
-    sett.g_ring = 0;
-    sett.l_ring = 0;
-
-    //depending on the grid size, ring positions 
-    //either from grid index or fixed (from d_key)
-    sett.m_ring = (gynum > ALPSIZE) ? gidy / ALPSIZE : d_key->sett.m_ring;
-    sett.r_ring = (gynum > 1) ? gidy % ALPSIZE : d_key->sett.r_ring;
-
-    sett.g_mesg = d_key->sett.g_mesg;
-    sett.l_mesg = (gxnum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key->sett.l_mesg;
-    sett.m_mesg = (gxnum > ALPSIZE) ? (gidx / ALPSIZE) % ALPSIZE : d_key->sett.m_mesg;
-    sett.r_mesg = (gxnum > 1) ? gidx % ALPSIZE : d_key->sett.r_mesg;
-  }
-  {
-    //element of results[] to store the output 
-    linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
-    result = &taskResults[linear_idx];
-    result->index = linear_idx;
-    result->score = -1;
-  }
-  if (lid == 0)
-  {
-    skip_this_key = ((gxnum > 1) &&
-      (GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
-        & turnover_modes) == 0);
+    sett = tempData[linear_idx].sett;
+    sett.m_ring = d_key->sett.m_ring;
+    sett.r_ring = d_key->sett.r_ring;
   }
   barrier(CLK_LOCAL_MEM_FENCE);
-  
-  if (skip_this_key) return;
   
   const global int8_t * g_scrambling_table;
   local int8_t * scrambling_table;

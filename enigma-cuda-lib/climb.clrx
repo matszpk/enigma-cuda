@@ -10,6 +10,8 @@
  * SCRAMBLER_STRIDE - scrambler stride
  * SCORE_KINDS - score_kinds
  * TURNOVER_MODES - turnover_modes
+ * SHORT_BIGRAMS - if nonzero then bigrams stored in ushort instead int
+ * SHORT_TRIGRAMS - if nonzero then trigrams stored in ushort instead int
  */
 
 .nomacrocase
@@ -18,6 +20,27 @@ ALPSIZE = 26
 HALF_ALPSIZE = ALPSIZE>>1
 ALPSIZE_TO2 = ALPSIZE*ALPSIZE
 ALPSIZE_TO3 = ALPSIZE*ALPSIZE*ALPSIZE
+
+.get_format BINFMT
+
+AMDCL2_OR_GALLIUM = BINFMT==3 || BINFMT==1
+
+ADDRBITS = 32
+.iffmt amdcl2
+    .if64
+        ADDRBITS = 64
+    .endif
+.elseiffmt amd
+    .if64
+        ADDRBITS = 64
+    .endif
+.elseiffmt gallium
+    ADDRBITS = 64
+.endif
+
+.iffmt gallium
+.get_llvm_version LLVMVER
+.endif
 
 .ifgt TASK_SIZE-64
     .macro Barrier
@@ -333,6 +356,17 @@ __VREG_POOL_COUNT = 256
     __VREG_POOL3 = \var\()7
 .endm
 
+.macro ResetPool
+    __SREG_POOL0 = 0
+    __SREG_POOL1 = 0
+    __SREG_POOL2 = 0
+    __SREG_POOL3 = 0
+    __VREG_POOL0 = 0
+    __VREG_POOL1 = 0
+    __VREG_POOL2 = 0
+    __VREG_POOL3 = 0
+.endm
+
 
 .macro VRegFree name
     Free __VREG_POOL, \name\()__index, \name\()__size
@@ -412,6 +446,14 @@ __VREG_POOL_COUNT = 256
 # debug stuff
 ####
 
+.ifndef DEBUG
+DEBUG = 0
+.endif
+
+.ifndef DEBUG_CLIMBINIT
+DEBUG_CLIMBINIT = 0
+.endif
+
 #DEBUG = 3
 
 .if DEBUG
@@ -469,14 +511,14 @@ WAVEFRONT_SIZE = (TASK_SIZE+63) & ~63
     
     .ifeq \type # sregtype
         .iffmt amd
-            .if64
+            .ifeq ADDRBITS-64
                 s_add_u32 debugOut_res[0], debugOut_res[0], debugOut[0]
                 s_addc_u32 debugOut_res[1], debugOut_res[1], debugOut[1]
             .endif
         .endif
     .else   # vregtype
         .iffmt amd
-            .if64
+            .ifeq ADDRBITS-64
                 s_add_u32 debugOut_res[0], debugOut_res[0], debugOut[0]
                 s_addc_u32 debugOut_res[1], debugOut_res[1], debugOut[1]
             .endif
@@ -516,6 +558,77 @@ WAVEFRONT_SIZE = (TASK_SIZE+63) & ~63
     .endif
         s_waitcnt vmcnt(0)&expcnt(0)
 .endm
+.endif # DEBUG
+
+.if DEBUG_CLIMBINIT
+.macro DUMP_REG_START regsNum, type
+    SavePool DebugOldPool
+    SRegAlloc4A debugOut_res
+    .ifeq \type
+        .error "Unsupported"
+    .else
+        xdebugOut_arg = vdebugOut_arg
+    .endif
+    .iffmt amdcl2 
+        .if32
+            SRegAlloc1 debugOut
+            s_load_dword debugOut, argsPtr, xdebugOut_arg*SMUL
+            s_mov_b64 debugOut_res[0:1], 0
+        .else
+            s_load_dwordx2 debugOut_res[0:1], argsPtr, xdebugOut_arg*SMUL
+        .endif
+        s_movk_i32 debugOut_res[2], 0xffff
+        s_mov_b32 debugOut_res[3], 0x8027fac
+    .elseiffmt amd
+        .ifne \type
+            xdebugOut_uav = vdebugOut_uav
+        .endif
+        s_load_dwordx4 debugOut_res, uavTablePtr, xdebugOut_uav*8*SMUL
+        .if32
+            SRegAlloc1 debugOut
+            s_buffer_load_dword debugOut, constBuf1Res, xdebugOut_arg*SMUL
+        .else
+            SRegAlloc2A debugOut
+            s_buffer_load_dwordx2 debugOut, constBuf1Res, xdebugOut_arg*SMUL
+        .endif
+    .endif
+        s_waitcnt lgkmcnt(0)
+        
+    .ifne \type # vregtype
+        VRegAlloc1 globalId
+        v_mul_lo_u32 globalId, 4*\regsNum, id
+    .endif
+    
+    .ifne \type # vregtype
+        .iffmt amd
+            .ifeq ADDRBITS-64
+                s_add_u32 debugOut_res[0], debugOut_res[0], debugOut[0]
+                s_addc_u32 debugOut_res[1], debugOut_res[1], debugOut[1]
+            .endif
+        .endif
+    .endif
+.endm
+.macro DUMP_REG_SINGLE reg, offset, type
+    .ifne \type # vregtype
+        .iffmt amdcl2
+            .if32
+                buffer_store_dword \reg, globalId, debugOut_res, debugOut offen offset:\offset
+            .else
+                buffer_store_dword \reg, globalId, debugOut_res, 0 offen offset:\offset
+            .endif
+        .elseiffmt amd
+            .if32
+                buffer_store_dword \reg, globalId, debugOut_res, debugOut offen offset:\offset
+            .else
+                buffer_store_dword \reg, globalId, debugOut_res, 0 offen offset:\offset
+            .endif
+        .endif
+    .endif
+        s_waitcnt vmcnt(0)&expcnt(0)
+.endm
+.endif
+
+.if DEBUG|DEBUG_CLIMBINIT
 .macro DUMP_REG_END
         s_endpgm
     RestorePool DebugOldPool
@@ -559,7 +672,7 @@ WAVEFRONT_SIZE = (TASK_SIZE+63) & ~63
     DUMP_REG_SINGLE \reg2, 8, 1
     DUMP_REG_END
 .endm
-.endif
+.endif  # DEBUG|DEBUG_CLIMBINIT
 
 PRINT_INFO = 1
 
@@ -579,6 +692,12 @@ PRINT_INFO = 1
             .print "AMD OpenCL 1.2 format 32-bit"
         .else
             .print "AMD OpenCL 1.2 format 64-bit"
+        .endif
+    .elseiffmt gallium
+        .ifge LLVMVER-40000
+            .print "Gallium OpenCL1.1 format LLVM 4.0"
+        .else
+            .print "Gallium OpenCL1.1 format"
         .endif
     .endif
     .ifarch gcn1.0
@@ -608,7 +727,7 @@ PRINT_INFO = 1
     .endif
 .endif
 
-.print "GCN Assembly Optimization 0.1"
+.print "GCN Assembly Optimization 0.2r1"
 
 ####
 # defs
@@ -665,392 +784,6 @@ ResultSize = 8+28
     .error "ICScore Test requires enabled skIC"
 .endif
 
-####
-# kernel
-####
-
-USE_LOCAL_IN_TRYSWAP = 1
-
-.kernel ClimbKernel
-    .config
-    local_scrambler_size = ((TASK_SIZE + (SCRAMBLER_STRIDE-1)) & \
-                    ~(SCRAMBLER_STRIDE-1)) * 28
-        
-    LocalPlugs = 0
-    LocalUnigrams = 32
-    LocalTemps = LocalUnigrams+128
-    LocalScoreBuf = LocalUnigrams+128
-    LocalTmpSums = LocalScoreBuf+128
-    LocalScrambler = LocalTmpSums+32
-    LocalOldScoreInd = LocalTmpSums+28
-    LocalPlainText = LocalScrambler + local_scrambler_size
-    
-        .dims x
-        .localsize 32 + 128 + 128 + 32 + TASK_SIZE + local_scrambler_size
-    .iffmt amdcl2
-        .dx10clamp
-        .ieeemode
-        .useargs
-        .usesetup
-        .setupargs
-        .arg d_wiring, "Wiring*", structure*, 1024, constant, const, rdonly
-        .arg d_key, "Key*", structure*, 64, constant, const, rdonly
-        .arg scramblerData, "int8_t*", char*, global, const, rdonly
-        .arg trigramsData, "int*", int*, global, const, rdonly
-        .arg d_unigrams, "int*", int*, constant, const, rdonly
-        .arg d_bigrams, "int*", int*, constant, const, rdonly
-        .arg d_plugs, "int8_t*", char*, constant, const, rdonly
-        .arg d_order, "int8_t*", char*, constant, const, rdonly
-        .arg d_fixed, "int", int
-        .arg d_ciphertext, "int8_t*", char*, constant, const, rdonly
-        .arg taskResults, "Result*", structure*, 64, global, 
-    .if DEBUG&1
-        .arg sdebugOut, "uint*", char*, global,
-    .endif
-    .if DEBUG&2
-        .arg vdebugOut, "uint*", char*, global,
-    .endif
-        
-    SRegAlloc2At setupPtr, 4
-    SRegAlloc2At argsPtr, 6
-    .ifge ARCH-GCN14
-        SRegAlloc1At gid, 10
-    .else
-        SRegAlloc1At gid, 8
-    .endif
-    .if32
-        d_wiring_arg = 6
-        d_key_arg = 7
-        scramblerData_arg = 8
-        trigramsData_arg = 9
-        d_unigrams_arg = 10
-        d_bigrams_arg = 11
-        d_plugs_arg = 12
-        d_order_arg = 13
-        d_fixed_arg = 14
-        d_ciphertext_arg = 15
-        taskResults_arg = 16
-        nextDebug_arg = taskResults_arg+1
-        .if DEBUG&1
-            sdebugOut_arg = nextDebug_arg
-            nextDebug_arg = nextDebug_arg+1
-        .endif
-        .if DEBUG&2
-            vdebugOut_arg = nextDebug_arg
-        .endif
-    .else
-        d_wiring_arg = 12
-        d_key_arg = 14
-        scramblerData_arg = 16
-        trigramsData_arg = 18
-        d_unigrams_arg = 20
-        d_bigrams_arg = 22
-        d_plugs_arg = 24
-        d_order_arg = 26
-        d_fixed_arg = 28
-        d_ciphertext_arg = 30
-        taskResults_arg = 32
-        nextDebug_arg = taskResults_arg+2
-        .if DEBUG&1
-            sdebugOut_arg = nextDebug_arg
-            nextDebug_arg = nextDebug_arg+2
-        .endif
-        .if DEBUG&2
-            vdebugOut_arg = nextDebug_arg
-        .endif
-    .endif
-        
-    .ifge ARCH-GCN14
-        sgprUserNum = 10
-    .else
-        sgprUserNum = 8
-    .endif
-        freeSgprUser = 4    # scratch buffer not used
-    .elseiffmt amd
-        .uavid 11
-        .uavprivate 0
-        .printfid 9
-        .privateid 8
-        .cbid 10
-        .userdata ptr_uav_table, 0, 2, 2
-        .userdata imm_const_buffer, 0, 4, 4
-        .userdata imm_const_buffer, 1, 8, 4
-        .arg d_wiring, "Wiring*", structure*, 1024, constant, const
-        .arg d_key, "Key*", structure*, 64, constant, const
-        .arg scramblerData, "int8_t*", void*, global, const
-        .arg trigramsData, "int*", int*, global, const
-        .arg d_unigrams, "int*", int*, constant, const
-        .arg d_bigrams, "int*", int*, constant, const
-        .arg d_plugs, "int8_t*", void*, constant, const
-        .arg d_order, "int8_t*", void*, constant, const
-        .arg d_fixed, "int", int
-        .arg d_ciphertext, "int8_t*", void*, constant, const
-        .arg taskResults, "Result*", structure*, 64, global
-    .if DEBUG&1
-        .arg sdebugOut, "uint*", char*, global,
-    .endif
-    .if DEBUG&2
-        .arg vdebugOut, "uint*", char*, global,
-    .endif
-        
-        SRegAlloc2At uavTablePtr, 2
-        SRegAlloc4At constBuf0Res, 4
-        SRegAlloc4At constBuf1Res, 8
-        SRegAlloc1At gid, 12
-        
-        d_wiring_arg = 0
-        d_key_arg = 4
-        scramblerData_arg = 8
-        trigramsData_arg = 12
-        d_unigrams_arg = 16
-        d_bigrams_arg = 20
-        d_plugs_arg = 24
-        d_order_arg = 28
-        d_fixed_arg = 32
-        d_ciphertext_arg = 36
-        taskResults_arg = 40
-        nextDebug_arg = taskResults_arg+4
-        .if DEBUG&1
-            sdebugOut_arg = nextDebug_arg
-            nextDebug_arg = nextDebug_arg+4
-        .endif
-        .if DEBUG&2
-            vdebugOut_arg = nextDebug_arg
-        .endif
-        
-        uavStart = 12
-        d_wiring_uav = uavStart+0
-        d_key_uav = uavStart+1
-        scramblerData_uav = uavStart+2
-        trigramsData_uav = uavStart+3
-        d_unigrams_uav = uavStart+4
-        d_bigrams_uav = uavStart+5
-        d_plugs_uav = uavStart+6
-        d_order_uav = uavStart+7
-        d_ciphertext_uav = uavStart+8
-        taskResults_uav = uavStart+9
-        nextDebug_uav = taskResults_uav+1
-        .if DEBUG&1
-            sdebugOut_uav = nextDebug_uav
-            nextDebug_uav = nextDebug_uav+1
-        .endif
-        .if DEBUG&2
-            vdebugOut_uav = nextDebug_uav
-        .endif
-        
-        sgprUserNum = 12
-        freeSgprUser = 2
-    .else
-        .error "Unsupported binary format"
-    .endif
-    
-    VRegAlloc1At lid, 0
-    /*
-     * MAIN CODE - main code of ClimbKernel
-     */
-    .text
-        SRegAlloc1 gxnum
-        # load gxnum and d_plugs,d_unigrams addresses
-        s_mov_b32 m0, 0x10000
-    .iffmt amdcl2
-        
-        .if32
-            SRegAlloc1 d_plugs
-            SRegAlloc1 d_unigrams
-        .else
-            SRegAlloc2A d_plugs
-            SRegAlloc2A d_unigrams
-        .endif
-        s_load_dword gxnum, setupPtr, SMUL*3
-        .if32
-            SRegAlloc4A bufres
-            s_load_dword d_plugs, argsPtr, SMUL*d_plugs_arg
-            s_load_dword d_unigrams, argsPtr, SMUL*d_unigrams_arg
-            s_mov_b64 bufres[0:1], 0
-            s_movk_i32 bufres[2], 0xffff
-            s_mov_b32 bufres[3], 0x8027fac
-        .else
-            s_load_dwordx2 d_plugs, argsPtr, SMUL*d_plugs_arg
-            s_load_dwordx2 d_unigrams, argsPtr, SMUL*d_unigrams_arg
-        .endif
-        s_waitcnt lgkmcnt(0)
-        
-        .ifgt TASK_SIZE-192
-            s_lshr_b32 gxnum, gxnum, 8
-        .elseifgt TASK_SIZE-128
-            VRegAlloc1 tmp1
-            VRegAlloc1 tmp2
-            s_lshr_b32 gxnum, gxnum, 6
-            s_add_u32 gxnum, gxnum, 1       # divide by 3
-            v_mov_b32 tmp2, 5592405           # 1/3*(1<<24)
-            v_mul_u32_u24 tmp1, gxnum, tmp2
-            v_mul_hi_u32_u24 tmp2, gxnum, tmp2
-            v_alignbit_b32 tmp1, tmp2, tmp1, 24
-            v_readfirstlane_b32 gxnum, tmp1
-            RegFree tmp1
-            RegFree tmp2
-        .elseifgt TASK_SIZE-64
-            s_lshr_b32 gxnum, gxnum, 7
-        .else
-            s_lshr_b32 gxnum, gxnum, 6
-        .endif # TASK_SIZE-X
-    
-    .elseiffmt amd
-    
-        .if32
-            SRegAlloc1 d_plugs
-            SRegAlloc1 d_unigrams
-        .else
-            SRegAlloc2A d_plugs
-            SRegAlloc2A d_unigrams
-        .endif # bit
-        SRegAlloc4A d_plugs_res
-        SRegAlloc4A d_unigrams_res
-        s_buffer_load_dword gxnum, constBuf0Res, SMUL*8
-        s_load_dwordx4 d_plugs_res, uavTablePtr, SMUL*8*d_plugs_uav
-        s_load_dwordx4 d_unigrams_res, uavTablePtr, SMUL*8*d_unigrams_uav
-        .if32
-            s_buffer_load_dword d_plugs, constBuf1Res, SMUL*d_plugs_arg
-            s_buffer_load_dword d_unigrams, constBuf1Res, SMUL*d_unigrams_arg
-        .else
-            s_buffer_load_dwordx2 d_plugs, constBuf1Res, SMUL*d_plugs_arg
-            s_buffer_load_dwordx2 d_unigrams, constBuf1Res, SMUL*d_unigrams_arg
-        .endif # bit
-        s_waitcnt lgkmcnt(0)
-    .endif
-        
-        VRegAlloc1 lid4
-        v_lshlrev_b32 lid4, 2, lid
-        VRegAlloc2 plugunigram
-        
-        /*  if (lid < ALPSIZE)
-            {
-                block.plugs[lid] = d_plugs[lid];
-                block.unigrams[lid] = d_unigrams[lid];
-            } */
-        v_cmpx_gt_u32 vcc, ALPSIZE, lid
-    .ifgt TASK_SIZE-64
-        s_cbranch_execz skipFeedToLds
-    .endif
-        
-    .iffmt amdcl2
-    
-        .if32
-            buffer_load_sbyte plugunigram[0], lid, bufres, d_plugs offen
-            buffer_load_dword plugunigram[1], lid4, bufres, d_unigrams offen
-        .else
-            VADD_U32 plugunigram[0], vcc, d_plugs[0], lid
-            v_mov_b32 plugunigram[1], d_plugs[1]
-            VADDC_U32 plugunigram[1], vcc, 0, plugunigram[1], vcc
-            flat_load_sbyte plugunigram[0], plugunigram
-            
-            VRegAlloc2 tmpaddr
-            VADD_U32 tmpaddr[0], vcc, d_unigrams[0], lid4
-            v_mov_b32 tmpaddr[1], d_unigrams[1]
-            VADDC_U32 tmpaddr[1], vcc, 0, tmpaddr[1], vcc
-            flat_load_dword plugunigram[1], tmpaddr
-            RegFree tmpaddr
-        .endif
-        
-        RegFree d_plugs
-        RegFree d_unigrams
-    .elseiffmt amd
-        .if32
-            buffer_load_sbyte plugunigram[0], lid, d_plugs_res, d_plugs offen
-            buffer_load_dword plugunigram[1], lid4, d_unigrams_res, d_unigrams offen
-        .else
-            s_add_u32 d_plugs_res[0], d_plugs_res[0], d_plugs[0]
-            s_addc_u32 d_plugs_res[1], d_plugs_res[1], d_plugs[1]
-            buffer_load_sbyte plugunigram[0], lid, d_plugs_res, 0 offen
-            s_add_u32 d_unigrams_res[0], d_unigrams_res[0], d_unigrams[0]
-            s_addc_u32 d_unigrams_res[1], d_unigrams_res[1], d_unigrams[1]
-            buffer_load_dword plugunigram[1], lid4, d_unigrams_res, 0 offen
-        .endif
-        RegFree d_plugs
-        RegFree d_unigrams
-        RegFree d_plugs_res
-        RegFree d_unigrams_res
-    .endif
-    
-        s_waitcnt vmcnt(1)
-        ds_write_b8 lid, plugunigram[0] offset:LocalPlugs
-        s_waitcnt vmcnt(0)
-        ds_write_b32 lid4, plugunigram[1] offset:LocalUnigrams
-        
-    .ifeq USE_LOCAL_IN_TRYSWAP
-        # keep plugunigram[0] for later usage (in tryswap and calculations)
-        VRegAlloc1At d_plugsVal, plugunigram__index
-    .endif
-    
-    .ifgt TASK_SIZE-64
-skipFeedToLds:
-    .endif
-    s_mov_b64 exec, -1
-    
-    # load d_key struct
-    .iffmt amdcl2
-        .if32
-            SRegAlloc2A d_key
-            s_load_dword d_key[0], argsPtr, SMUL*d_key_arg
-            s_mov_b32 d_key[1], 0
-        .else
-            SRegAlloc2A d_key
-            s_load_dwordx2 d_key, argsPtr, SMUL*d_key_arg
-        .endif
-    .elseiffmt amd
-        SRegAlloc2A d_key_res
-        .if32
-            SRegAlloc2A d_key
-            s_buffer_load_dword d_key[0], constBuf1Res, SMUL*d_key_arg
-        .else
-            SRegAlloc2A d_key
-            s_buffer_load_dwordx2 d_key, constBuf1Res, SMUL*d_key_arg
-        .endif
-        s_load_dwordx2 d_key_res, uavTablePtr, SMUL*8*d_key_uav
-    .endif
-        s_waitcnt lgkmcnt(0)
-    .iffmt amd
-    # prepare d_key pointer
-        s_and_b32 d_key_res[1], d_key_res[1], 0xffff
-        s_add_u32 d_key[0], d_key[0], d_key_res[0]
-        .if32
-            s_addc_u32 d_key[1], 0, d_key_res[1]
-        .else
-            s_addc_u32 d_key[1], d_key[1], d_key_res[1]
-        .endif
-        RegFree d_key_res
-    .endif
-            
-       /*   if (lid == 0)
-            {
-            block.count = taskCount;
-            
-            //ring and rotor settings to be tried
-            sett.g_ring = 0;
-            sett.l_ring = 0;
-            // for this code no code, because are constant and not modifiable later
-            
-            // we assume gynum==1
-            //depending on the grid size, ring positions 
-            //either from grid index or fixed (from d_key)
-            sett.m_ring = (gynum > ALPSIZE) ? gidy / ALPSIZE : d_key->sett.m_ring;
-            sett.r_ring = (gynum > 1) ? gidy % ALPSIZE : d_key->sett.r_ring;
-            
-            sett.g_mesg = d_key->sett.g_mesg;
-        */
-    # load d_key->sett.m_ring and r_ring
-        SRegAlloc2A mr_ring
-        SRegAlloc1 g_mesg
-        SRegAlloc1 l_mesg
-        SRegAlloc1 m_mesg
-        SRegAlloc1 r_mesg
-        sett.m_ring = %mr_ring[0]
-        sett.r_ring = %mr_ring[1]
-        /* sett.l_mesg = (gxnum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key->sett.l_mesg;
-         * sett.m_mesg = (gxnum > ALPSIZE) ? (gidx / ALPSIZE) % ALPSIZE : d_key->sett.m_mesg;
-         * sett.r_mesg = (gxnum > 1) ? gidx % ALPSIZE : d_key->sett.r_mesg;
-         */
-         
     .macro SDivBy26 x, y
         VRegAlloc1 tmp1
         VRegAlloc1 tmp2
@@ -1060,6 +793,18 @@ skipFeedToLds:
         v_mul_hi_u32_u24 tmp2, \y, tmp2
         v_alignbit_b32 tmp1, tmp2, tmp1, 28
         v_readfirstlane_b32 \y, tmp1
+        RegFree tmp1
+        RegFree tmp2
+    .endm
+    
+    .macro VDivBy26 x, y
+        VRegAlloc1 tmp1
+        VRegAlloc1 tmp2
+        VADD_U32 \y, vcc, 1, \x    # divide by 26
+        v_mov_b32 tmp2, 10324440           # 1/26*(1<<28)
+        v_mul_u32_u24 tmp1, \y, tmp2
+        v_mul_hi_u32_u24 tmp2, \y, tmp2
+        v_alignbit_b32 \y, tmp2, tmp1, 28
         RegFree tmp1
         RegFree tmp2
     .endm
@@ -1141,74 +886,325 @@ skipFeedToLds:
         RegFree tmp1
     .endm
     
-    .ifgt TASK_SIZE-64
-        v_cmp_ge_u32 vcc, 63, lid
-        s_cbranch_vccz skipOneWave
+    .macro ComputeScramblerIndexFree
+        RegFree l_period_const1
+        RegFree l_period_const2
+        RegFree l_phase
+        RegFree m_period
+        RegFree m_phase
+        RegFree canInc_l_phase
+    .endm
+
+USE_LOCAL_IN_TRYSWAP = 1
+
+####
+# kernel
+####
+
+.scope
+
+.kernel ClimbInitKernel
+    .config
+        .dims x
+    .iffmt amdcl2
+        .dx10clamp
+        .ieeemode
+        .useargs
+        .usesetup
+        .setupargs
+        .arg d_wiring, "Wiring*", structure*, 1024, constant, const, rdonly
+        .arg d_key, "Key*", structure*, 64, constant, const, rdonly
+        .arg tasksNum, "int", int
+        .arg tempClimbData, "ClimbTempEntry*", structure*, 64, global
+    .if DEBUG_CLIMBINIT
+        .arg vdebugOut, "uint*", char*, global,
     .endif
+    SRegAlloc2At setupPtr, 4
+    SRegAlloc2At argsPtr, 6
+    .ifge ARCH-GCN14
+        SRegAlloc1At gid, 10
+    .else
+        SRegAlloc1At gid, 8
+    .endif
+    .if32
+        d_wiring_arg = 6
+        d_key_arg = 7
+        tasksNum_arg = 8
+        tempClimbData_arg = 9
+        .if DEBUG_CLIMBINIT
+            vdebugOut_arg = 10
+        .endif
+    .else
+        d_wiring_arg = 12
+        d_key_arg = 14
+        tasksNum_arg = 16
+        tempClimbData_arg = 18
+        .if DEBUG_CLIMBINIT
+            vdebugOut_arg = 20
+        .endif
+    .endif
+    .elseiffmt amd
+        .uavid 11
+        .uavprivate 0
+        .printfid 9
+        .privateid 8
+        .cbid 10
+        .userdata ptr_uav_table, 0, 2, 2
+        .userdata imm_const_buffer, 0, 4, 4
+        .userdata imm_const_buffer, 1, 8, 4
+        .arg d_wiring, "Wiring*", structure*, 1024, constant, const
+        .arg d_key, "Key*", structure*, 64, constant, const
+        .arg tasksNum, "int", int
+        .arg tempClimbData, "ClimbTempEntry*", structure*, 64, global
+    .if DEBUG_CLIMBINIT
+        .arg vdebugOut, "uint*", char*, global,
+    .endif
+        
+        SRegAlloc2At uavTablePtr, 2
+        SRegAlloc4At constBuf0Res, 4
+        SRegAlloc4At constBuf1Res, 8
+        SRegAlloc1At gid, 12
+        
+        d_wiring_arg = 0
+        d_key_arg = 4
+        tasksNum_arg = 8
+        tempClimbData_arg = 12
+    .if DEBUG_CLIMBINIT
+        vdebugOut_arg = 16
+    .endif
+        
+        uavStart = 12
+        d_wiring_uav = uavStart+0
+        d_key_uav = uavStart+1
+        tempClimbData_uav = uavStart+2
+    .if DEBUG_CLIMBINIT
+        vdebugOut_uav = uavStart+3
+    .endif
+        
+        sgprUserNum = 12
+        freeSgprUser = 2
     
-        s_load_dwordx2 mr_ring, d_key, (Key.sett.m_ring>>2)*SMUL
-        s_load_dword g_mesg, d_key, (Key.sett.g_mesg>>2)*SMUL
+    .elseiffmt gallium
+        .iflt LLVMVER-40000
+            .dims xyz   # gallium set always three dimensions by Gallium
+            .tgsize     # TG_SIZE_EN is always enabled by Gallium
+        .endif
+    .args
+        .arg global, 8      # d_wiring
+        .arg global, 8      # d_key
+        .arg scalar, 4      # tasksNum
+        .arg global, 8      # tempClimbData
+    .if DEBUG_CLIMBINIT
+        .arg scalar, 8      # vdebugOut
+    .endif
+        .arg griddim, 4
+        .arg gridoffset, 4
+    
+        .ifge LLVMVER-40000
         
-        s_cmp_le_u32 gxnum, 1
-        s_cbranch_scc1 gxnumLe1
-        # divide by ALPSIZE, and modulo
-        SRegAlloc1 gidby26
-        SDivBy26 gid, gidby26
-        s_mul_i32 r_mesg, gidby26, ALPSIZE
-        s_sub_u32 r_mesg, gid, r_mesg
-        s_branch toSettM_mesg
-gxnumLe1:
-        s_load_dword r_mesg, d_key, (Key.sett.r_mesg>>2)*SMUL
-toSettM_mesg:
-        s_cmp_le_u32 gxnum, ALPSIZE
-        s_cbranch_scc1 gxnumLe26
-        SDivBy26 gidby26, l_mesg
-        s_mul_i32 m_mesg, l_mesg, ALPSIZE
-        s_sub_u32 m_mesg, gidby26, m_mesg
-        RegFree gidby26
-        s_branch toSettL_mesg
-gxnumLe26:
-        s_load_dword m_mesg, d_key, (Key.sett.m_mesg>>2)*SMUL
-toSettL_mesg:
-        s_cmp_gt_u32 gxnum, ALPSIZE_TO2
-        s_cbranch_scc1 gxnumGt2626
-        s_load_dword l_mesg, d_key, (Key.sett.l_mesg>>2)*SMUL
-gxnumGt2626:
+        .config
+            .dims x
+            .dx10clamp
+            .ieeemode
+            .default_hsa_features
+            
+            d_wiring_arg = 0
+            d_key_arg = 2
+            tasksNum_arg = 4
+            tempClimbData_arg = 6
+        .if DEBUG_CLIMBINIT
+            vdebugOut_arg = 8     # vdebugOut
+        .endif
         
-        /* {
-            //element of results[] to store the output 
-            linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
-            result = &taskResults[linear_idx];
-            result->index = linear_idx;
-            result->score = -1;
-            // linear_idx = gid
-            // results set later ant return
-          } */
+            SRegAlloc2At argsPtr, 6
+            SRegAlloc1At gid, 8
+            
+        .else # old LLVM
+            
+            d_wiring_arg = 9
+            d_key_arg = 11
+            tasksNum_arg = 13
+            tempClimbData_arg = 15
+        .if DEBUG_CLIMBINIT
+            vdebugOut_arg = 17     # vdebugOut
+        .endif
+            
+            SRegAlloc2At argsPtr, 0
+            SRegAlloc1At gid, 4
+        .endif
+    .else
+        .error "Unsupported binary format"
+    .endif
+    .text
+.iffmt gallium
+::ClimbInitKernel:
+.ifge LLVMVER-40000
+    .skip 256
+.endif
+.endif
+    VRegAlloc1At id, 0
+        # calculate gid
+        s_lshl_b32 gid, gid, 8      # localsize - 256
+        VADD_U32 id, vcc, gid, id
+        # get tasksNum
+        SRegAlloc1 tasksNum
+    .if AMDCL2_OR_GALLIUM
+        s_load_dword tasksNum, argsPtr, SMUL*tasksNum_arg
+    .elseiffmt amd
+        s_buffer_load_dword tasksNum, constBuf1Res, tasksNum_arg*SMUL
+    .endif
         s_waitcnt lgkmcnt(0)
     
-        /* if (lid == 0)
-        {
+        v_cmpx_ge_u32 vcc, tasksNum, id
+        s_cbranch_execz endOfClimbInit
+        SRegAlloc2A tmpexec
+        s_mov_b64 tmpexec, exec
+        
+        #########################################
+        # main calculation
+        
+        /*
+            //ring and rotor settings to be tried
+            sett.g_ring = 0;
+            sett.l_ring = 0;
+
+            //depending on the grid size, ring positions 
+            //either from grid index or fixed (from d_key)
+            sett.m_ring = d_key->sett.m_ring;
+            sett.r_ring = d_key->sett.r_ring;
+        */
+        
+        SRegAlloc2A mr_ring
+        # load m_ring, r_ring
+    # load d_key struct
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            SRegAlloc4A bufres
+            SRegAlloc2 d_key
+            s_load_dword d_key[0], argsPtr, SMUL*d_key_arg
+            s_mov_b32 d_key[1], 0
+            s_mov_b64 bufres[0:1], 0
+            s_movk_i32 bufres[2], 0xffff
+            s_mov_b32 bufres[3], 0x8027fac
+        .else
+            SRegAlloc4A d_key_res
+            s_load_dwordx2 d_key_res[0:1], argsPtr, SMUL*d_key_arg
+            s_movk_i32 d_key_res[2], 0xffff
+            s_mov_b32 d_key_res[3], 0x8027fac
+        .endif
+    .elseiffmt amd
+        SRegAlloc4A d_key_res
+        .if32
+            SRegAlloc1 d_key
+            s_buffer_load_dword d_key, constBuf1Res, SMUL*d_key_arg
+        .else
+            SRegAlloc2A d_key
+            s_buffer_load_dwordx2 d_key, constBuf1Res, SMUL*d_key_arg
+        .endif
+        s_load_dwordx4 d_key_res, uavTablePtr, SMUL*8*d_key_uav
+    .endif
+        s_waitcnt lgkmcnt(0)
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            s_load_dwordx2 mr_ring, d_key, (Key.sett.m_ring>>2)*SMUL
+        .else
+            s_load_dwordx2 mr_ring, d_key_res[0:1], (Key.sett.m_ring>>2)*SMUL
+        .endif
+    .elseiffmt amd
+        s_add_u32 d_key_res[0], d_key[0], d_key_res[0]
+        .if32
+            s_addc_u32 d_key_res[1], 0, d_key_res[1]
+        .else
+            s_addc_u32 d_key_res[1], d_key[1], d_key_res[1]
+        .endif
+        s_and_b32 d_key_res[1], 0xffff, d_key_res[1]
+        RegFree d_key
+        s_load_dwordx2 mr_ring, d_key_res[0:1], (Key.sett.m_ring>>2)*SMUL
+    .endif
+    
+        VRegAlloc4 tempv2
+        m_phase = %tempv2[0]
+        canInc_l_phase = %tempv2[1]
+        l_mesg = %tempv2[2]
+        m_mesg = %tempv2[3]
+        VRegAlloc1 r_mesg
+        /*
+            sett.g_mesg = d_key->sett.g_mesg;
+            sett.l_mesg = (tasksNum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key->sett.l_mesg;
+            sett.m_mesg = (tasksNum > ALPSIZE) ? (gidx / ALPSIZE) % ALPSIZE : d_key->sett.m_mesg;
+            sett.r_mesg = (tasksNum > 1) ? gidx % ALPSIZE : d_key->sett.r_mesg;
+        */
+.macro VLoadKeyValue reg, offset
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            buffer_load_dword \reg, v0, bufres, d_key[0] offset:\offset
+        .else
+            buffer_load_dword \reg, v0, d_key_res, 0 offset:\offset
+        .endif
+    .elseiffmt amd
+        buffer_load_dword \reg, v0, d_key_res, 0 offset:\offset
+    .endif
+.endm
+    
+        s_cmp_le_u32 tasksNum, 1
+        s_cbranch_scc1 gxnumLe1
+        VRegAlloc1 idby26
+        VDivBy26 id, idby26
+        v_mul_u32_u24 r_mesg, ALPSIZE, idby26
+        VSUB_U32 r_mesg, vcc, id, r_mesg
+        s_branch toSettM_mesg
+gxnumLe1:
+        # load r_mesg
+        VLoadKeyValue r_mesg, Key.sett.r_mesg
+toSettM_mesg:
+        s_cmp_le_u32 tasksNum, ALPSIZE
+        s_cbranch_scc1 gxnumLe26
+        VDivBy26 idby26, l_mesg
+        v_mul_u32_u24 m_mesg, ALPSIZE, l_mesg
+        VSUB_U32 m_mesg, vcc, idby26, m_mesg
+        RegFree idby26
+        s_branch toSettL_mesg
+gxnumLe26:
+        # load m_mesg
+        VLoadKeyValue m_mesg, Key.sett.m_mesg
+toSettL_mesg:
+        s_cmp_gt_u32 tasksNum, ALPSIZE_TO2
+        s_cbranch_scc1 gxnumGt2626
+        VLoadKeyValue l_mesg, Key.sett.l_mesg
+gxnumGt2626:
+
+        SRegAlloc2A mr_slot
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            s_load_dwordx2 mr_slot, d_key, (Key.stru.m_slot>>2)*SMUL
+            RegFree d_key
+        .else
+            s_load_dwordx2 mr_slot, d_key_res[0:1], (Key.stru.m_slot>>2)*SMUL
+            RegFree d_key_res
+        .endif
+    .elseiffmt amd
+        s_load_dwordx2 mr_slot, d_key_res[0:1], (Key.stru.m_slot>>2)*SMUL
+        RegFree d_key_res
+    .endif
+        
+        /*
             skip_this_key = ((gxnum > 1) &&
-            (GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
-                & turnover_modes) == 0);
-        } */
+                (GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
+                    & turnover_modes) == 0);
+        */
+        s_cmp_gt_u32 tasksNum, 1
+    SavePool climbInitOldPool0
+        s_cbranch_scc0 storeResultsToSkip
         
-        VRegAlloc1 skip_this_key
-        v_mov_b32 skip_this_key, 0 # default no skip
-        s_cmp_gt_u32 gxnum, 1
-        ####################################
-        # TODO: Test gxnum<=1 case
-        s_cbranch_scc0 noToProcessToSet
-    SavePool oldPool0
-        
-        SRegAlloc1 scramblerBase
-        #SRegAlloc1 scramblerMod26
-.macro ComputeScramblerIndexBase
+        /*
+         * GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
+         */
+.macro ComputeScramblerIndexBaseV
         # load d_wiring res and ptr
-    .iffmt amdcl2
+    .if AMDCL2_OR_GALLIUM
     
         SRegAlloc2A d_wiring
-        .if32
+        .ifeq ADDRBITS-32
             s_mov_b32 d_wiring[1], 0
             s_load_dword d_wiring[0], argsPtr, SMUL*d_wiring_arg
         .else
@@ -1219,7 +1215,7 @@ gxnumGt2626:
         SRegAlloc2A d_wiring_res
         SRegAlloc2A d_wiring
         s_load_dwordx2 d_wiring_res, uavTablePtr, SMUL*8*d_wiring_uav
-        .if32
+        .ifeq ADDRBITS-32
             s_buffer_load_dword d_wiring[0], constBuf1Res, SMUL*d_wiring_arg
         .else
             s_buffer_load_dwordx2 d_wiring, constBuf1Res, SMUL*d_wiring_arg
@@ -1230,7 +1226,7 @@ gxnumGt2626:
     .iffmt amd
         s_and_b32 d_wiring_res[1], d_wiring_res[1], 0xffff
         s_add_u32 d_wiring[0], d_wiring_res[0], d_wiring[0]
-        .if32
+        .ifeq ADDRBITS-32
             s_addc_u32 d_wiring[1], d_wiring_res[1], 0
         .else
             s_addc_u32 d_wiring[1], d_wiring_res[1], d_wiring[1]
@@ -1257,6 +1253,7 @@ gxnumGt2626:
         s_lshr_b32 r_notch0, r_notch0, r_notch1
         s_bfe_i32 r_notch1, r_notch0, 0x80008
         s_sext_i32_i8 r_notch0, r_notch0
+        
         /*  //period of the rotor turnovers
             int m_period = (r_notch[1] == NONE) ? ALPSIZE : HALF_ALPSIZE;
          */
@@ -1269,35 +1266,33 @@ gxnumGt2626:
             if (r_notch[1] != NONE && r_after_notch >= (r_notch[1] - r_notch[0]))
                 r_after_notch -= r_notch[1] - r_notch[0];
          */
-        SRegAlloc1 r_after_notch
-        SRegAlloc1 r_after_notch1
-        s_sub_u32 r_after_notch, r_mesg, r_notch0
-        #s_cmp_lt_i32 r_after_notch, 0 # 
-        s_cselect_b32 r_after_notch1, ALPSIZE, 0
-        s_add_u32 r_after_notch, r_after_notch, r_after_notch1
+        VRegAlloc1 r_after_notch
+        VRegAlloc1 r_after_notch1
+        s_waitcnt vmcnt(2)
+        VSUB_U32 r_after_notch, vcc, r_mesg, r_notch0
+        v_cndmask_b32 r_after_notch1, 0, ALPSIZE, vcc
+        VADD_U32 r_after_notch, vcc, r_after_notch, r_after_notch1
         RegFree r_after_notch1
         RegFree r_notch0    # last usage
         SRegAlloc1 r_notch_diff
         s_sub_u32 r_notch_diff, r_notch1, r_notch0
-        v_cmp_ne_i32 vcc, r_notch1, NONE
-        s_and_b32 r_notch_diff, r_notch_diff, vcc_lo
-        s_cmp_ge_i32 r_after_notch, r_notch_diff
-        s_cselect_b32 r_notch_diff, r_notch_diff, 0
-        s_sub_u32  r_after_notch, r_after_notch, r_notch_diff
+        s_cmp_lg_i32 r_notch1, NONE
+        s_cbranch_scc0 CScrmbJump0_\@
+        v_cmpx_ge_i32 vcc, r_after_notch, r_notch_diff
+        VSUB_U32 r_after_notch, vcc, r_after_notch, r_notch_diff
+CScrmbJump0_\@:
         RegFree r_notch_diff
         RegFree r_notch1
+        s_mov_b64 exec, tmpexec
         
         /*  //middle wheel turnover phase
             int m_phase = r_after_notch - 1;
             if (m_phase < 0) m_phase += m_period;
             */
-        SRegAlloc1 m_phase
-        SRegAlloc1 m_phase1
-        s_sub_u32 m_phase, r_after_notch, 1
-        s_cmp_lt_i32 m_phase, 0
-        s_cselect_b32 m_phase1, m_period, 0
-        s_add_u32 m_phase, m_phase, m_phase1
-        RegFree m_phase1
+        VSUBREV_U32 m_phase, vcc, 1, r_after_notch
+        v_cmpx_gt_i32 vcc, 0, m_phase
+        VADD_U32 m_phase, vcc, m_period, m_phase
+        s_mov_b64 exec, tmpexec
         
         s_waitcnt lgkmcnt(0)
         ##################################
@@ -1331,51 +1326,50 @@ gxnumGt2626:
             if (m_notch[1] != NONE && m_after_notch >= (m_notch[1] - m_notch[0]))
                 m_after_notch -= m_notch[1] - m_notch[0];
         */
-        SRegAlloc1 m_after_notch
-        SRegAlloc1 m_after_notch1
-        s_sub_u32 m_after_notch, m_mesg, m_notch0
-        #s_cmp_lt_i32 m_after_notch, 0
-        s_cselect_b32 m_after_notch1, ALPSIZE, 0
-        s_add_u32 m_after_notch, m_after_notch, m_after_notch1
+        VRegAlloc1 m_after_notch
+        VRegAlloc1 m_after_notch1
+        s_waitcnt vmcnt(1)
+        VSUB_U32 m_after_notch, vcc, m_mesg, m_notch0
+        v_cndmask_b32 m_after_notch1, 0, ALPSIZE, vcc
+        VADD_U32 m_after_notch, vcc, m_after_notch, m_after_notch1
         RegFree m_after_notch1
         RegFree m_notch0    # last usage
         SRegAlloc1 m_notch_diff
         s_sub_u32 m_notch_diff, m_notch1, m_notch0
-        v_cmp_ne_i32 vcc, m_notch1, NONE
-        s_and_b32 m_notch_diff, m_notch_diff, vcc_lo
-        s_cmp_ge_i32 m_after_notch, m_notch_diff
-        s_cselect_b32 m_notch_diff, m_notch_diff, 0
-        s_sub_u32  m_after_notch, m_after_notch, m_notch_diff
+        s_cmp_lg_i32 m_notch1, NONE
+        s_cbranch_scc0 CScrmbJump1_\@
+        v_cmpx_ge_i32 vcc, m_after_notch, m_notch_diff
+        VSUB_U32 m_after_notch, vcc, m_after_notch, m_notch_diff
+CScrmbJump1_\@:
         RegFree m_notch_diff
         RegFree m_notch1
+        s_mov_b64 exec, tmpexec
+    
         /* //left wheel turnover phase
             int l_phase = m_phase - 1 + (m_after_notch - 1) * m_period;
             if (l_phase < 0) l_phase += l_period;
         */
-        SRegAlloc1 l_phase
-        s_mul_i32 l_phase, m_after_notch, m_period
-        s_sub_u32 l_phase, l_phase, m_period
-        s_add_u32 l_phase, l_phase, m_phase
-        s_sub_u32 l_phase, l_phase, 1
-        SRegAlloc1 l_phase1
-        s_cmp_lt_i32 l_phase, 0
-        s_cselect_b32 l_phase1, l_period, 0
-        s_add_u32 l_phase, l_phase, l_phase1
-    
+        VRegAlloc1 l_phase
+        v_mul_u32_u24 l_phase, m_after_notch, m_period
+        VSUB_U32 l_phase, vcc, l_phase, m_period
+        VADD_U32 l_phase, vcc, l_phase, m_phase
+        VSUBREV_U32 l_phase, vcc, 1, l_phase
+        v_cmpx_gt_i32 vcc, 0, l_phase
+        VADD_U32 l_phase, vcc, l_phase, l_period
+        s_mov_b64 exec, tmpexec
+        
         /*  //hacks
             if (m_after_notch == 0) l_phase += m_period;
             if (m_after_notch == 1 && r_after_notch == 1)
                 l_phase -= l_period; //effectively sets l_phase to -1
         */
-        s_cmp_eq_u32 m_after_notch, 0
-        s_cselect_b32 l_phase1, m_period, 0
-        s_add_u32 l_phase, l_phase, l_phase1
-        s_cmp_lg_i32 m_after_notch, 1
-        s_cbranch_scc1 ComputeScramblerIndexBasejump0\@
-        s_cmp_lg_i32 r_after_notch, 1
-        s_cbranch_scc1 ComputeScramblerIndexBasejump0\@
-        s_sub_u32 l_phase, l_phase, l_period
-ComputeScramblerIndexBasejump0\@:
+        v_cmpx_eq_i32 vcc, 0, m_after_notch
+        VADD_U32 l_phase, vcc, m_period, l_phase
+        s_mov_b64 exec, tmpexec
+        v_cmpx_eq_i32 vcc, 1, m_after_notch
+        v_cmpx_eq_i32 vcc, 1, r_after_notch
+        VSUBREV_U32 l_phase, vcc, l_period, l_phase
+        s_mov_b64 exec, tmpexec
         RegFree l_period
         
         /* if (m_after_notch == 0 && r_after_notch == 0)
@@ -1384,91 +1378,862 @@ ComputeScramblerIndexBasejump0\@:
                 l_phase -= m_period;
                 if (char_pos == 0) l_phase++;
             } */
-        SRegAlloc1 canInc_l_phase
-        s_mov_b32 canInc_l_phase, 0
-        s_cmp_lg_i32 m_after_notch, 0
-        s_cbranch_scc1 ComputeScramblerIndexBasejump1\@
-        s_cmp_lg_i32 r_after_notch, 0
-        s_cbranch_scc1 ComputeScramblerIndexBasejump1\@
-        s_mov_b32 canInc_l_phase, 1
-        RegFree m_after_notch
-        RegFree r_after_notch
-        s_sub_u32 m_phase, m_phase, m_period
-        s_sub_u32 l_phase, l_phase, m_period
-ComputeScramblerIndexBasejump1\@:
-        RegFree l_phase1
+        v_mov_b32 canInc_l_phase, 0
+        v_cmpx_eq_u32 vcc, 0, m_after_notch
+        v_cmpx_eq_u32 vcc, 0, r_after_notch
+        s_cbranch_execz CScrmbJump2_\@
+        v_mov_b32 canInc_l_phase, 1
+        VSUBREV_U32 m_phase, vcc, m_period, m_phase
+        VSUBREV_U32 l_phase, vcc, m_period, l_phase
+CScrmbJump2_\@:
+        s_mov_b64 exec, tmpexec
 .endm
 
-.macro ComputeScramblerIndexNext char_pos, scramblerLast, literal
+.macro ComputeScramblerIndexNextV2 char_pos, scramblerLast, literal, tmpexec
         ########################
         # next part
         ########################
         
         l_phase_alloc = 1
     .ifeqs "\char_pos", "0"
-        SRegAlloc1 l_phase_n
-        s_add_u32 l_phase_n, l_phase, canInc_l_phase
+        VRegAlloc1 l_phase_n
+        VADD_U32 l_phase_n, vcc, l_phase, canInc_l_phase
     .elseifeq \literal  # if not literal
-        s_cmp_eq_u32 \char_pos, 0
-        s_and_b32 canInc_l_phase, canInc_l_phase, scc
-        s_add_u32 l_phase_n, l_phase, canInc_l_phase
+        v_cmpx_eq_u32 vcc, 0, \char_pos
+        VADD_U32 l_phase_n, vcc, l_phase, canInc_l_phase
+        s_mov_b64 exec, \tmpexec
     .else
         l_phase_alloc = 0
         l_phase_n = %l_phase
     .endif
-        
+    
         /* int m_steps = (m_phase + char_pos + 1) / m_period; */
-        SRegAlloc1 m_steps
+        VRegAlloc1 m_steps
     .ifnes "\char_pos", "0"
         .if \literal
-            s_add_u32 m_steps, m_phase, 1+\char_pos
+            VADD_U32 m_steps, vcc, 1+\char_pos, m_phase
         .else
-            s_add_u32 m_steps, m_phase, \char_pos
-            s_add_u32 m_steps, m_steps, 1
+            VADD_U32 m_steps, vcc, \char_pos, m_phase
+            VADD_U32 m_steps, vcc, 1, m_steps
         .endif
     .else
-        s_add_u32 m_steps, m_phase, 1
+        VADD_U32 m_steps, vcc, 1, m_phase
     .endif
-        s_cmp_eq_i32 m_period, HALF_ALPSIZE
-        #RegFree m_period
-        #RegFree m_phase
-        s_lshl_b32 m_steps, m_steps, scc
-        SSDivBy26 m_steps, m_steps
+        v_cmpx_eq_i32 vcc, HALF_ALPSIZE, m_period
+        v_lshlrev_b32 m_steps, 1, m_steps
+        s_mov_b64 exec, \tmpexec
+        VSDivBy26 m_steps, m_steps
         /* int l_steps = (l_phase + char_pos + 1) / l_period; */
-        SRegAlloc1 l_steps
+        VRegAlloc1 l_steps
     .ifnes "\char_pos", "0"
         .if \literal
-            s_add_u32 l_steps, l_phase_n, 1+\char_pos
+            VADD_U32 l_steps, vcc, 1+\char_pos, l_phase_n
         .else
-            s_add_u32 l_steps, l_phase_n, \char_pos
-            s_add_u32 l_steps, l_steps, 1
+            VADD_U32 l_steps, vcc, \char_pos, l_phase_n
+            VADD_U32 l_steps, vcc, 1, l_steps
         .endif
     .else
-        s_add_u32 l_steps, l_phase_n, 1
+        VADD_U32 l_steps, vcc, 1, l_phase_n
     .endif
     .if l_phase_alloc
         RegFree l_phase_n
     .endif
-        s_cmp_eq_i32 m_period, HALF_ALPSIZE
-        #RegFree l_period
-        #RegFree l_phase
-        s_lshl_b32 l_steps, l_steps, scc
-        # TODO: divide by (l_period-1)*m_period
-        SSDivByX l_steps, l_steps, l_period_const1, l_period_const2
+    
+        v_cmpx_eq_i32 vcc, HALF_ALPSIZE, m_period
+        v_lshlrev_b32 l_steps, 1, l_steps
+        s_mov_b64 exec, \tmpexec
+        VSDivByX l_steps, l_steps, l_period_const1, l_period_const2
         
-        s_add_u32 m_steps, m_steps, l_steps
-        
-        # mod26(sett->l_mesg - sett->l_ring /*0*/ + l_steps)
-        s_add_u32 l_steps, l_mesg, l_steps
+        VADD_U32 m_steps, vcc, m_steps, l_steps
+        VADD_U32 l_steps, vcc, l_mesg, l_steps
     .ifnb \scramblerLast
         # we have only scramblerLast part
-        SMod26Fn l_steps, \scramblerLast
+        VMod26Fn l_steps, \scramblerLast
     .else
         .error "Not supported condition for ComputeScramblerIndexNext"
     .endif
         RegFree l_steps
         RegFree m_steps
 .endm
+
+        VRegAlloc1 turnoverVal
+        v_mov_b32 turnoverVal, toAfterMessage
+        
+    .if TURNOVER_MODES & toAfterMessage
+        ComputeScramblerIndexBaseV
+    .endif
+    
+        /* //rotors with two notches
+            if (stru->r_slot > rotV && sett->r_ring >= HALF_ALPSIZE) 
+                return toAfterMessage;
+            if (stru->m_slot > rotV && sett->m_ring >= HALF_ALPSIZE) 
+                return toAfterMessage;
+        */
+        s_waitcnt lgkmcnt(0)    # mr_slot
+        SRegAlloc2A tmpcond
+        v_cmp_gt_i32 vcc, mr_slot[1], rotV
+        v_cmp_ge_i32 tmpcond, mr_ring[1], HALF_ALPSIZE
+        s_and_b64 tmpcond, vcc, tmpcond
+    .ifne TURNOVER_MODES & toAfterMessage
+        s_cbranch_scc1 storeResults
+    .else
+        s_cbranch_scc1 storeResultsToSkip
+    .endif
+    
+        v_cmp_gt_i32 vcc, mr_slot[0], rotV
+        v_cmp_ge_i32 tmpcond, mr_ring[0], HALF_ALPSIZE
+        s_and_b64 tmpcond, vcc, tmpcond
+    .ifne TURNOVER_MODES & toAfterMessage
+        s_cbranch_scc1 storeResults
+    .else
+        s_cbranch_scc1 storeResultsToSkip
+    .endif
+        RegFree tmpcond
+        
+        # int8_t l_core_before = mod26(sett->l_mesg - sett->l_ring);
+        VRegAlloc1 l_core_first
+    .ifeq TURNOVER_MODES & toAfterMessage
+        ComputeScramblerIndexBaseV
+    .endif
+        s_waitcnt vmcnt(0)
+        VRegAlloc1 l_core_before
+        VMod26Fn l_mesg, l_core_before
+    
+        ComputeScramblerIndexNextV2 0, l_core_first, 1, tmpexec
+        
+        v_mov_b32 turnoverVal, toBeforeMessage
+        v_cmpx_eq_u32 vcc, l_core_first, l_core_before
+        s_cbranch_execz storeResults
+    
+        RegFree l_core_before
+        
+        VRegAlloc1 l_core_last
+        /* int8_t l_core_last = 
+                ComputeScramblerIndex(ciphertext_length-1, stru, sett, wiring) 
+                / ALPSIZE_TO2;
+        if (l_core_last != l_core_first) return toDuringMessage; */
+        SRegAlloc2A tmpexec2
+        s_mov_b64 tmpexec2, exec
+        ComputeScramblerIndexNextV2 (TASK_SIZE-1), l_core_last, 1, tmpexec2
+        RegFree tmpexec2
+    /*.if DEBUG_CLIMBINIT
+        s_waitcnt lgkmcnt(0)
+        #v_mov_b32 l_core_last, 55465
+        DUMP_VREG l_core_last
+    .endif*/
+        v_mov_b32 turnoverVal, toDuringMessage
+        v_cmpx_eq_u32 vcc, l_core_first, l_core_last
+        s_cbranch_execz storeResults
+    
+        v_mov_b32 turnoverVal, toAfterMessage
+        
+storeResults:
+        s_mov_b64 exec, tmpexec
+        SRegAlloc2A skipTestMask
+        v_and_b32 turnoverVal, turnoverVal, TURNOVER_MODES
+        v_cmp_eq_u32 skipTestMask, 0, turnoverVal
+        
+.macro InitStoreResults
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            SRegAlloc1 tempClimbData
+            s_load_dword tempClimbData, argsPtr, tempClimbData_arg*SMUL
+        .else
+            SRegAlloc4A tempClimbData_res
+            s_load_dwordx2 tempClimbData_res[0:1], argsPtr, tempClimbData_arg*SMUL
+            s_movk_i32 tempClimbData_res[2], 0xffff
+            s_mov_b32 tempClimbData_res[3], 0x8027fac
+        .endif
+    .elseiffmt amd
+        SRegAlloc4A tempClimbData_res
+        .ifeq ADDRBITS-32
+            SRegAlloc1 tempClimbData
+            s_buffer_load_dword tempClimbData, constBuf1Res, SMUL*tempClimbData_arg
+        .else
+            SRegAlloc2A tempClimbData
+            s_buffer_load_dwordx2 tempClimbData, constBuf1Res, SMUL*tempClimbData_arg
+        .endif
+        s_load_dwordx4 tempClimbData_res, uavTablePtr, SMUL*8*tempClimbData_uav
+    .endif
+        s_waitcnt lgkmcnt(0)
+    .iffmt amd
+        .ifeq ADDRBITS-64
+            s_add_u32 tempClimbData_res[0], tempClimbData_res[0], tempClimbData[0]
+            s_addc_u32 tempClimbData_res[1], tempClimbData_res[1], tempClimbData[1]
+            RegFree tempClimbData
+        .endif
+    .endif
+.endm
+        InitStoreResults
+    
+        VRegAlloc1 id48
+        v_mul_u32_u24 id48, 48, id
+        
+    .macro VStoreTempClimb reg, offset
+        .if AMDCL2_OR_GALLIUM
+            .ifeq ADDRBITS-32
+                buffer_store_dword \reg, id48, bufres, tempClimbData offen offset:\offset
+            .else
+                buffer_store_dword \reg, id48, tempClimbData_res, 0 offen offset:\offset
+            .endif
+        .elseiffmt amd
+            .ifeq ADDRBITS-32
+                buffer_store_dword \reg, id48, tempClimbData_res, tempClimbData offen \
+                            offset:\offset
+            .else
+                buffer_store_dword \reg, id48, tempClimbData_res, 0 offen offset:\offset
+            .endif
+        .endif
+    .endm
+    .macro VStoreTempClimbX4 reg, offset
+        .if AMDCL2_OR_GALLIUM
+            .ifeq ADDRBITS-32
+                buffer_store_dwordx4 \reg, id48, bufres, tempClimbData offen offset:\offset
+            .else
+                buffer_store_dwordx4 \reg, id48, tempClimbData_res, 0 offen offset:\offset
+            .endif
+        .elseiffmt amd
+            .ifeq ADDRBITS-32
+                buffer_store_dwordx4 \reg, id48, tempClimbData_res, tempClimbData offen \
+                            offset:\offset
+            .else
+                buffer_store_dwordx4 \reg, id48, tempClimbData_res, 0 offen offset:\offset
+            .endif
+        .endif
+    .endm
+    
+        VRegAlloc1 tempv0
+        VRegAlloc4 tempv
+        v_cndmask_b32 tempv0, 0, 1, skipTestMask
+        VStoreTempClimb tempv0, 0
+        s_andn2_b64 exec, exec, skipTestMask
+        s_cbranch_execz skipPassedTasks
+        # passed tasks lanes
+        v_mov_b32 tempv[0], l_period_const1
+        v_mov_b32 tempv[1], l_period_const2
+        v_mov_b32 tempv[2], l_phase
+        v_mov_b32 tempv[3], m_period
+        VStoreTempClimbX4 tempv, 4
+        VStoreTempClimbX4 tempv2, 20
+        VStoreTempClimb r_mesg, 36
+skipPassedTasks:
+endOfClimbInit:
+        s_endpgm
+
+storeResultsToSkip:
+    RestorePool climbInitOldPool0
+        InitStoreResults
+    
+        VRegAlloc1 id48
+        v_mul_u32_u24 id48, 48, id
+    
+        VRegAlloc1 tempv0
+        v_mov_b32 tempv0, 0
+        VStoreTempClimb tempv0, 0
+        s_endpgm
+
+.ends
+    ResetPool
+.iffmt gallium
+.p2align 8
+.endif
+
+####
+# kernel
+####
+
+.scope
+
+.kernel ClimbKernel
+    .config
+    local_scrambler_size = ((TASK_SIZE + (SCRAMBLER_STRIDE-1)) & \
+                    ~(SCRAMBLER_STRIDE-1)) * 28
+        
+    LocalPlugs = 0
+    LocalUnigrams = 32
+    LocalTemps = LocalUnigrams+128
+    LocalScoreBuf = LocalUnigrams+128
+    LocalTmpSums = LocalScoreBuf+128
+    LocalScrambler = LocalTmpSums+32
+    LocalOldScoreInd = LocalTmpSums+28
+    LocalPlainText = LocalScrambler + local_scrambler_size
+    
+        .dims x
+        .localsize 32 + 128 + 128 + 32 + TASK_SIZE + local_scrambler_size
+    .iffmt amdcl2
+        .dx10clamp
+        .ieeemode
+        .useargs
+        .usesetup
+        .setupargs
+        .arg d_wiring, "Wiring*", structure*, 1024, constant, const, rdonly
+        .arg d_key, "Key*", structure*, 64, constant, const, rdonly
+        .arg scramblerData, "int8_t*", char*, global, const, rdonly
+        .arg trigramsData, "int*", int*, global, const, rdonly
+        .arg d_unigrams, "int*", int*, constant, const, rdonly
+        .arg d_bigrams, "int*", int*, constant, const, rdonly
+        .arg d_plugs, "int8_t*", char*, constant, const, rdonly
+        .arg d_order, "int8_t*", char*, constant, const, rdonly
+        .arg d_fixed, "int", int
+        .arg d_ciphertext, "int8_t*", char*, constant, const, rdonly
+        .arg taskResults, "Result*", structure*, 64, global, 
+        .arg tempClimbData, "ClimbTempEntry*", structure*, 64, global, const
+    .if DEBUG&1
+        .arg sdebugOut, "uint*", char*, global,
+    .endif
+    .if DEBUG&2
+        .arg vdebugOut, "uint*", char*, global,
+    .endif
+        
+    SRegAlloc2At setupPtr, 4
+    SRegAlloc2At argsPtr, 6
+    .ifge ARCH-GCN14
+        SRegAlloc1At gid, 10
+    .else
+        SRegAlloc1At gid, 8
+    .endif
+    .ifeq ADDRBITS-32
+        d_wiring_arg = 6
+        d_key_arg = 7
+        scramblerData_arg = 8
+        trigramsData_arg = 9
+        d_unigrams_arg = 10
+        d_bigrams_arg = 11
+        d_plugs_arg = 12
+        d_order_arg = 13
+        d_fixed_arg = 14
+        d_ciphertext_arg = 15
+        taskResults_arg = 16
+        tempClimbData_arg = 17
+        nextDebug_arg = tempClimbData_arg+1
+        .if DEBUG&1
+            sdebugOut_arg = nextDebug_arg
+            nextDebug_arg = nextDebug_arg+1
+        .endif
+        .if DEBUG&2
+            vdebugOut_arg = nextDebug_arg
+        .endif
+    .else
+        d_wiring_arg = 12
+        d_key_arg = 14
+        scramblerData_arg = 16
+        trigramsData_arg = 18
+        d_unigrams_arg = 20
+        d_bigrams_arg = 22
+        d_plugs_arg = 24
+        d_order_arg = 26
+        d_fixed_arg = 28
+        d_ciphertext_arg = 30
+        taskResults_arg = 32
+        tempClimbData_arg = 34
+        nextDebug_arg = tempClimbData_arg+2
+        .if DEBUG&1
+            sdebugOut_arg = nextDebug_arg
+            nextDebug_arg = nextDebug_arg+2
+        .endif
+        .if DEBUG&2
+            vdebugOut_arg = nextDebug_arg
+        .endif
+    .endif
+        
+    .ifge ARCH-GCN14
+        sgprUserNum = 10
+    .else
+        sgprUserNum = 8
+    .endif
+        freeSgprUser = 4    # scratch buffer not used
+    .elseiffmt amd
+        .uavid 11
+        .uavprivate 0
+        .printfid 9
+        .privateid 8
+        .cbid 10
+        .userdata ptr_uav_table, 0, 2, 2
+        .userdata imm_const_buffer, 0, 4, 4
+        .userdata imm_const_buffer, 1, 8, 4
+        .arg d_wiring, "Wiring*", structure*, 1024, constant, const
+        .arg d_key, "Key*", structure*, 64, constant, const
+        .arg scramblerData, "int8_t*", void*, global, const
+        .arg trigramsData, "int*", int*, global, const
+        .arg d_unigrams, "int*", int*, constant, const
+        .arg d_bigrams, "int*", int*, constant, const
+        .arg d_plugs, "int8_t*", void*, constant, const
+        .arg d_order, "int8_t*", void*, constant, const
+        .arg d_fixed, "int", int
+        .arg d_ciphertext, "int8_t*", void*, constant, const
+        .arg taskResults, "Result*", structure*, 64, global
+        .arg tempClimbData, "ClimbTempEntry*", structure*, 64, global, const
+    .if DEBUG&1
+        .arg sdebugOut, "uint*", char*, global,
+    .endif
+    .if DEBUG&2
+        .arg vdebugOut, "uint*", char*, global,
+    .endif
+        
+        SRegAlloc2At uavTablePtr, 2
+        SRegAlloc4At constBuf0Res, 4
+        SRegAlloc4At constBuf1Res, 8
+        SRegAlloc1At gid, 12
+        
+        d_wiring_arg = 0
+        d_key_arg = 4
+        scramblerData_arg = 8
+        trigramsData_arg = 12
+        d_unigrams_arg = 16
+        d_bigrams_arg = 20
+        d_plugs_arg = 24
+        d_order_arg = 28
+        d_fixed_arg = 32
+        d_ciphertext_arg = 36
+        taskResults_arg = 40
+        tempClimbData_arg = 44
+        nextDebug_arg = tempClimbData_arg+4
+        .if DEBUG&1
+            sdebugOut_arg = nextDebug_arg
+            nextDebug_arg = nextDebug_arg+4
+        .endif
+        .if DEBUG&2
+            vdebugOut_arg = nextDebug_arg
+        .endif
+        
+        uavStart = 12
+        d_wiring_uav = uavStart+0
+        d_key_uav = uavStart+1
+        scramblerData_uav = uavStart+2
+        trigramsData_uav = uavStart+3
+        d_unigrams_uav = uavStart+4
+        d_bigrams_uav = uavStart+5
+        d_plugs_uav = uavStart+6
+        d_order_uav = uavStart+7
+        d_ciphertext_uav = uavStart+8
+        taskResults_uav = uavStart+9
+        tempClimbData_uav = uavStart+10
+        nextDebug_uav = tempClimbData_uav+1
+        .if DEBUG&1
+            sdebugOut_uav = nextDebug_uav
+            nextDebug_uav = nextDebug_uav+1
+        .endif
+        .if DEBUG&2
+            vdebugOut_uav = nextDebug_uav
+        .endif
+        
+        sgprUserNum = 12
+        freeSgprUser = 2
+    
+    .elseiffmt gallium
+        .iflt LLVMVER-40000
+            .dims xyz   # gallium set always three dimensions by Gallium
+            .tgsize     # TG_SIZE_EN is always enabled by Gallium
+        .endif
+    .args
+        .arg global, 8      # d_wiring
+        .arg global, 8      # d_key
+        .arg global, 8      # scramblerData
+        .arg global, 8      # trigramsData
+        .arg global, 8      # d_unigrams
+        .arg global, 8      # d_bigrams
+        .arg global, 8      # d_plugs
+        .arg global, 8      # d_order
+        .arg scalar, 4      # d_fixed
+        .arg global, 8      # d_ciphertext
+        .arg global, 8      # taskResults
+        .arg global, 8      # tempClimbData
+    .if DEBUG_CLIMBINIT
+        .arg scalar, 8      # vdebugOut
+    .endif
+        .arg griddim, 4
+        .arg gridoffset, 4
+        
+        .ifge LLVMVER-40000
+        
+        .config
+            .dims x
+            .dx10clamp
+            .ieeemode
+            .default_hsa_features
+            
+            d_wiring_arg = 0
+            d_key_arg = 2
+            scramblerData_arg = 4
+            trigramsData_arg = 6
+            d_unigrams_arg = 8
+            d_bigrams_arg = 10
+            d_plugs_arg = 12
+            d_order_arg = 14
+            d_fixed_arg = 16
+            d_ciphertext_arg = 18
+            taskResults_arg = 20
+            tempClimbData_arg = 22
+        .if DEBUG_CLIMBINIT
+            vdebugOut_arg = 24     # vdebugOut
+        .endif
+        
+            SRegAlloc2At argsPtr, 6
+            SRegAlloc1At gid, 8
+            
+        .else # old LLVM
+            
+            d_wiring_arg = 9
+            d_key_arg = 11
+            scramblerData_arg = 13
+            trigramsData_arg = 15
+            d_unigrams_arg = 17
+            d_bigrams_arg = 19
+            d_plugs_arg = 21
+            d_order_arg = 23
+            d_fixed_arg = 25
+            d_ciphertext_arg = 27
+            taskResults_arg = 29
+            tempClimbData_arg = 31
+        .if DEBUG_CLIMBINIT
+            vdebugOut_arg = 33     # vdebugOut
+        .endif
+            
+            sgprUserNum = 8
+            SRegAlloc2At argsPtr, 0
+            SRegAlloc1At gid, 4
+        .endif
+    .else
+        .error "Unsupported binary format"
+    .endif
+    
+    VRegAlloc1At lid, 0
+    /*
+     * MAIN CODE - main code of ClimbKernel
+     */
+    .text
+.iffmt gallium
+::ClimbKernel:
+.ifge LLVMVER-40000
+    .skip 256
+.endif
+.endif
+        s_mov_b32 m0, 0x10000
+        # load tempdata addreses
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            SRegAlloc2A tempClimbData
+            s_load_dword tempClimbData[0], argsPtr, SMUL*tempClimbData_arg
+            s_mov_b32 tempClimbData[1], 0
+        .else
+            SRegAlloc2A tempClimbData
+            s_load_dwordx2 tempClimbData, argsPtr, SMUL*tempClimbData_arg
+        .endif
+    .elseiffmt amd
+        SRegAlloc2A tempClimbData_res
+        .ifeq ADDRBITS-32
+            SRegAlloc2A tempClimbData
+            s_buffer_load_dword tempClimbData[0], constBuf1Res, SMUL*tempClimbData_arg
+        .else
+            SRegAlloc2A tempClimbData
+            s_buffer_load_dwordx2 tempClimbData, constBuf1Res, SMUL*tempClimbData_arg
+        .endif
+        s_load_dwordx2 tempClimbData_res, uavTablePtr, SMUL*8*tempClimbData_uav
+    .endif
+        s_waitcnt lgkmcnt(0)
+    .iffmt amd
+    # prepare tempClimbData pointer
+        s_and_b32 tempClimbData_res[1], tempClimbData_res[1], 0xffff
+        s_add_u32 tempClimbData[0], tempClimbData[0], tempClimbData_res[0]
+        .ifeq ADDRBITS-32
+            s_addc_u32 tempClimbData[1], 0, tempClimbData_res[1]
+        .else
+            s_addc_u32 tempClimbData[1], tempClimbData[1], tempClimbData_res[1]
+        .endif
+        RegFree tempClimbData_res
+    .endif
+        
+        SRegAlloc1 gid48
+        s_mul_i32 gid48, 48, gid
+        
+        SRegAlloc1 skip_this_key
+        s_load_dword skip_this_key, tempClimbData, gid48
+        s_waitcnt lgkmcnt(0)
+        
+        s_cmp_eq_i32 skip_this_key, 0
+        
+        RegFree skip_this_key
+        s_cbranch_scc1 ClimbNoEnd
+        
+        ############################################
+        # store result 
+        SavePool OldPool
+        RegFree tempClimbData
+        RegFree gid48
+        # end of processing: this is not task
+    .ifgt TASK_SIZE-64
+        v_cmpx_eq_u32 vcc, lid, 0
+        s_cbranch_execz endOfClimb0
+    .endif
+    
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            SRegAlloc4A bufres
+            SRegAlloc1 taskResults
+            s_load_dword taskResults, argsPtr, SMUL*taskResults_arg
+            s_mov_b64 bufres[0:1], 0
+            s_movk_i32 bufres[2], 0xffff
+            s_mov_b32 bufres[3], 0x8027fac
+        .else # 64-bit
+            SRegAlloc4A taskResults_res
+            s_load_dwordx2 taskResults_res[0:1], argsPtr, SMUL*taskResults_arg
+            s_movk_i32 taskResults_res[2], 0xffff
+            s_mov_b32 taskResults_res[3], 0x8027fac
+        .endif
+    .elseiffmt amd
+        SRegAlloc4A taskResults_res
+        s_load_dwordx4 taskResults_res, uavTablePtr, SMUL*8*taskResults_uav
+        .ifeq ADDRBITS-32
+            SRegAlloc1 taskResults
+            s_buffer_load_dword taskResults, constBuf1Res, SMUL*taskResults_arg
+        .else
+            SRegAlloc2A taskResults
+            s_buffer_load_dwordx2 taskResults, constBuf1Res, SMUL*taskResults_arg
+        .endif
+    .endif
+        s_waitcnt lgkmcnt(0)
+        s_mov_b64 exec, 1 # only lane
+        VRegAlloc1At gidv, 1
+        v_mov_b32 gidv, gid
+        v_mov_b32 lid, -1 # score=-1, index = 
+    
+    .if AMDCL2_OR_GALLIUM
+        s_mul_i32 gid, gid, ResultSize
+        .ifeq ADDRBITS-32
+            s_add_u32 taskResults[0], taskResults[0], gid
+            buffer_store_dwordx2 v[0:1], v0, bufres, taskResults offset:28
+            RegFree taskResults
+        .else
+            buffer_store_dwordx2 v[0:1], v0, taskResults_res, gid offset:28
+            RegFree taskResults_res
+        .endif
+    .elseiffmt amd
+        s_mul_i32 gid, gid, ResultSize
+        s_add_u32 taskResults[0], taskResults[0], gid
+        .ifeq ADDRBITS-32
+            buffer_store_dwordx2 v[0:1], v0, taskResults_res, taskResults offset:28
+        .else
+            s_addc_u32 taskResults[1], taskResults[1], 0
+            s_add_u32 taskResults_res[0], taskResults_res[0], taskResults[0]
+            s_addc_u32 taskResults_res[1], taskResults_res[1], taskResults[1]
+            buffer_store_dwordx2 v[0:1], v0, taskResults_res, 28
+        .endif
+        RegFree taskResults
+        RegFree taskResults_res
+    .endif
+    
+    .ifgt TASK_SIZE-64
+endOfClimb0:
+    .endif
+        s_endpgm
+ClimbNoEnd:
+    RestorePool OldPool
+        
+        ######################################
+        # to process
+        ###########
+        
+        # load d_plugs,d_unigrams addresses
+    .if AMDCL2_OR_GALLIUM
+        
+        .ifeq ADDRBITS-32
+            SRegAlloc1 d_plugs
+            SRegAlloc1 d_unigrams
+        .else
+        .ifeq ARCH-GCN10
+            SRegAlloc4A d_plugs
+            SRegAlloc4A d_unigrams
+        .else
+            SRegAlloc2A d_plugs
+            SRegAlloc2A d_unigrams
+        .endif
+        .endif
+        .ifeq ADDRBITS-32
+            SRegAlloc4A bufres
+            s_load_dword d_plugs, argsPtr, SMUL*d_plugs_arg
+            s_load_dword d_unigrams, argsPtr, SMUL*d_unigrams_arg
+            s_mov_b64 bufres[0:1], 0
+            s_movk_i32 bufres[2], 0xffff
+            s_mov_b32 bufres[3], 0x8027fac
+        .else
+        .ifeq ARCH-GCN10
+            s_movk_i32 d_plugs[2], 0xffff
+            s_mov_b32 d_plugs[3], 0x8027fac
+            s_mov_b64 d_unigrams[2:3], d_plugs[2:3]
+        .endif
+            s_load_dwordx2 d_plugs[0:1], argsPtr, SMUL*d_plugs_arg
+            s_load_dwordx2 d_unigrams[0:1], argsPtr, SMUL*d_unigrams_arg
+        .endif
+        s_waitcnt lgkmcnt(0)
+        
+    .elseiffmt amd
+    
+        .ifeq ADDRBITS-32
+            SRegAlloc1 d_plugs
+            SRegAlloc1 d_unigrams
+        .else
+            SRegAlloc2A d_plugs
+            SRegAlloc2A d_unigrams
+        .endif # bit
+        SRegAlloc4A d_plugs_res
+        SRegAlloc4A d_unigrams_res
+        s_load_dwordx4 d_plugs_res, uavTablePtr, SMUL*8*d_plugs_uav
+        s_load_dwordx4 d_unigrams_res, uavTablePtr, SMUL*8*d_unigrams_uav
+        .ifeq ADDRBITS-32
+            s_buffer_load_dword d_plugs, constBuf1Res, SMUL*d_plugs_arg
+            s_buffer_load_dword d_unigrams, constBuf1Res, SMUL*d_unigrams_arg
+        .else
+            s_buffer_load_dwordx2 d_plugs, constBuf1Res, SMUL*d_plugs_arg
+            s_buffer_load_dwordx2 d_unigrams, constBuf1Res, SMUL*d_unigrams_arg
+        .endif # bit
+        s_waitcnt lgkmcnt(0)
+    .endif
+        
+        VRegAlloc1 lid4
+        v_lshlrev_b32 lid4, 2, lid
+        VRegAlloc2 plugunigram
+        
+        /*  if (lid < ALPSIZE)
+            {
+                block.plugs[lid] = d_plugs[lid];
+                block.unigrams[lid] = d_unigrams[lid];
+            } */
+        v_cmpx_gt_u32 vcc, ALPSIZE, lid
+    .ifgt TASK_SIZE-64
+        s_cbranch_execz skipFeedToLds
+    .endif
+        
+    .if AMDCL2_OR_GALLIUM
+    
+        .ifeq ADDRBITS-32
+            buffer_load_sbyte plugunigram[0], lid, bufres, d_plugs offen
+            buffer_load_dword plugunigram[1], lid4, bufres, d_unigrams offen
+        .else
+        .ifeq ARCH-GCN10
+            buffer_load_sbyte plugunigram[0], lid, d_plugs, 0 offen
+            buffer_load_dword plugunigram[1], lid4, d_unigrams, 0 offen
+        .else
+            VADD_U32 plugunigram[0], vcc, d_plugs[0], lid
+            v_mov_b32 plugunigram[1], d_plugs[1]
+            VADDC_U32 plugunigram[1], vcc, 0, plugunigram[1], vcc
+            flat_load_sbyte plugunigram[0], plugunigram
+            
+            VRegAlloc2 tmpaddr
+            VADD_U32 tmpaddr[0], vcc, d_unigrams[0], lid4
+            v_mov_b32 tmpaddr[1], d_unigrams[1]
+            VADDC_U32 tmpaddr[1], vcc, 0, tmpaddr[1], vcc
+            flat_load_dword plugunigram[1], tmpaddr
+            RegFree tmpaddr
+        .endif
+        .endif
+        
+        RegFree d_plugs
+        RegFree d_unigrams
+    .elseiffmt amd
+        .ifeq ADDRBITS-32
+            buffer_load_sbyte plugunigram[0], lid, d_plugs_res, d_plugs offen
+            buffer_load_dword plugunigram[1], lid4, d_unigrams_res, d_unigrams offen
+        .else
+            s_add_u32 d_plugs_res[0], d_plugs_res[0], d_plugs[0]
+            s_addc_u32 d_plugs_res[1], d_plugs_res[1], d_plugs[1]
+            buffer_load_sbyte plugunigram[0], lid, d_plugs_res, 0 offen
+            s_add_u32 d_unigrams_res[0], d_unigrams_res[0], d_unigrams[0]
+            s_addc_u32 d_unigrams_res[1], d_unigrams_res[1], d_unigrams[1]
+            buffer_load_dword plugunigram[1], lid4, d_unigrams_res, 0 offen
+        .endif
+        RegFree d_plugs
+        RegFree d_unigrams
+        RegFree d_plugs_res
+        RegFree d_unigrams_res
+    .endif
+    
+        s_waitcnt vmcnt(1)
+        ds_write_b8 lid, plugunigram[0] offset:LocalPlugs
+        s_waitcnt vmcnt(0)
+        ds_write_b32 lid4, plugunigram[1] offset:LocalUnigrams
+        
+    .ifeq USE_LOCAL_IN_TRYSWAP
+        # keep plugunigram[0] for later usage (in tryswap and calculations)
+        VRegAlloc1At d_plugsVal, plugunigram__index
+    .endif
+    
+    .ifgt TASK_SIZE-64
+skipFeedToLds:
+    .endif
+        s_mov_b64 exec, -1
+    
+    # load d_key struct
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
+            SRegAlloc2A d_key
+            s_load_dword d_key[0], argsPtr, SMUL*d_key_arg
+            s_mov_b32 d_key[1], 0
+        .else
+            SRegAlloc2A d_key
+            s_load_dwordx2 d_key, argsPtr, SMUL*d_key_arg
+        .endif
+    .elseiffmt amd
+        SRegAlloc2A d_key_res
+        .ifeq ADDRBITS-32
+            SRegAlloc2A d_key
+            s_buffer_load_dword d_key[0], constBuf1Res, SMUL*d_key_arg
+        .else
+            SRegAlloc2A d_key
+            s_buffer_load_dwordx2 d_key, constBuf1Res, SMUL*d_key_arg
+        .endif
+        s_load_dwordx2 d_key_res, uavTablePtr, SMUL*8*d_key_uav
+    .endif
+        s_waitcnt lgkmcnt(0)
+    .iffmt amd
+    # prepare d_key pointer
+        s_and_b32 d_key_res[1], d_key_res[1], 0xffff
+        s_add_u32 d_key[0], d_key[0], d_key_res[0]
+        .ifeq ADDRBITS-32
+            s_addc_u32 d_key[1], 0, d_key_res[1]
+        .else
+            s_addc_u32 d_key[1], d_key[1], d_key_res[1]
+        .endif
+        RegFree d_key_res
+    .endif
+            
+       /*   if (lid == 0)
+            {
+            block.count = taskCount;
+            
+            //ring and rotor settings to be tried
+            sett.g_ring = 0;
+            sett.l_ring = 0;
+            // for this code no code, because are constant and not modifiable later
+            
+            // we assume gynum==1
+            //depending on the grid size, ring positions 
+            //either from grid index or fixed (from d_key)
+            sett.m_ring = (gynum > ALPSIZE) ? gidy / ALPSIZE : d_key->sett.m_ring;
+            sett.r_ring = (gynum > 1) ? gidy % ALPSIZE : d_key->sett.r_ring;
+            
+            sett.g_mesg = d_key->sett.g_mesg;
+        */
+    # load d_key->sett.m_ring and r_ring
+        SRegAlloc2A mr_ring
+        sett.m_ring = %mr_ring[0]
+        sett.r_ring = %mr_ring[1]
+        /* sett.l_mesg = (gxnum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key->sett.l_mesg;
+         * sett.m_mesg = (gxnum > ALPSIZE) ? (gidx / ALPSIZE) % ALPSIZE : d_key->sett.m_mesg;
+         * sett.r_mesg = (gxnum > 1) ? gidx % ALPSIZE : d_key->sett.r_mesg;
+         */
+    
+        s_load_dwordx2 mr_ring, d_key, (Key.sett.m_ring>>2)*SMUL
+        
+        /* {
+            //element of results[] to store the output 
+            linear_idx = gidz * ALPSIZE_TO2 + gidy * ALPSIZE + gidx;
+            result = &taskResults[linear_idx];
+            result->index = linear_idx;
+            result->score = -1;
+            // linear_idx = gid
+            // results set later ant return
+          } */
+        s_waitcnt lgkmcnt(0)
 
 .macro ComputeScramblerIndexNextV char_pos, scramblerIndex
         ########################
@@ -1480,7 +2245,6 @@ ComputeScramblerIndexBasejump1\@:
         s_and_b32 vcc_hi, canInc_l_phase, vcc_hi
         VRegAlloc1 l_phase_v
         v_mov_b32 l_phase_v, l_phase
-        RegFree l_phase
         VADDC_U32 l_phase_v, vcc, 0, l_phase_v, vcc
         /* int m_steps = (m_phase + char_pos + 1) / m_period; */
         VRegAlloc1 m_steps
@@ -1526,232 +2290,38 @@ ComputeScramblerIndexBasejump1\@:
         RegFree m_steps
 .endm
 
-.macro ComputeScramblerIndexFree
-        RegFree l_period_const1
-        RegFree l_period_const2
-        RegFree l_phase
-        RegFree m_period
-        RegFree m_phase
-        RegFree canInc_l_phase
-.endm
-
-        /*
-         * GetTurnoverLocation(&(d_key->stru), &sett, block.count, d_wiring)
-         */
-        SRegAlloc2A mr_slot
-        s_load_dwordx2 mr_slot, d_key, (Key.stru.m_slot>>2)*SMUL
-        s_waitcnt lgkmcnt(0)
-        
-    .if TURNOVER_MODES & toAfterMessage
-        ComputeScramblerIndexBase
-    .endif
-        
-        /* //rotors with two notches
-            if (stru->r_slot > rotV && sett->r_ring >= HALF_ALPSIZE) 
-                return toAfterMessage;
-            if (stru->m_slot > rotV && sett->m_ring >= HALF_ALPSIZE) 
-                return toAfterMessage;
-        */
-        SRegAlloc2A tmpcond
-        v_cmp_gt_i32 vcc, mr_slot[1], rotV
-        v_cmp_ge_i32 tmpcond, mr_ring[1], HALF_ALPSIZE
-        s_and_b64 tmpcond, vcc, tmpcond
-    .ifne TURNOVER_MODES & toAfterMessage
-        s_cbranch_scc1 toProcessToSet
-    .else
-        s_cbranch_scc1 noToProcessToSet
-    .endif
-        v_cmp_gt_i32 vcc, mr_slot[0], rotV
-        v_cmp_ge_i32 tmpcond, mr_ring[0], HALF_ALPSIZE
-        s_and_b64 tmpcond, vcc, tmpcond
-    .ifne TURNOVER_MODES & toAfterMessage
-        s_cbranch_scc1 toProcessToSet
-    .else
-        s_cbranch_scc1 noToProcessToSet
-    .endif
-        RegFree tmpcond
-        
-        # int8_t l_core_before = mod26(sett->l_mesg - sett->l_ring);
-        SRegAlloc1 l_core_before
-        SMod26Fn l_mesg, l_core_before
-        /* int8_t l_core_first = ComputeScramblerIndex(0, stru, sett, wiring)
-                / ALPSIZE_TO2;
-           if (l_core_first != l_core_before) return toBeforeMessage; */
-        SRegAlloc1 l_core_first
-    .ifeq TURNOVER_MODES & toAfterMessage
-        ComputeScramblerIndexBase
-    .endif
-        ComputeScramblerIndexNext 0, l_core_first, 1
-    .ifeq DEBUG_PART
-        DUMP_SREG l_core_first
-    .endif
-        s_cmp_lg_u32 l_core_first, l_core_before
-    .ifne TURNOVER_MODES & toBeforeMessage
-        s_cbranch_scc1 toProcessToSet
-    .else
-        s_cbranch_scc1 noToProcessToSet
-    .endif
-        RegFree l_core_before
-        SRegAlloc1 l_core_last
-        /* int8_t l_core_last = 
-                ComputeScramblerIndex(ciphertext_length-1, stru, sett, wiring) 
-                / ALPSIZE_TO2;
-        if (l_core_last != l_core_first) return toDuringMessage; */
-        ComputeScramblerIndexNext (TASK_SIZE-1), l_core_last, 1
-        s_cmp_lg_u32 l_core_first, l_core_last
-    .ifne TURNOVER_MODES & toDuringMessage
-        s_cbranch_scc1 toProcessToSet
-    .else
-        s_cbranch_scc1 noToProcessToSet
-    .endif
-        
-        #v_mov_b32 skip_this_key, (TURNOVER_MODES & toAfterMessage)==0
-    .ifne TURNOVER_MODES & toAfterMessage
-        s_branch toProcessToSet
-    .endif
-
-noToProcessToSet:
-        v_mov_b32 skip_this_key, 1
-toProcessToSet:
-    # write ComputeScramblerIndexNext variables
-    .ifgt TASK_SIZE-64
-        v_writelane_b32 skip_this_key, l_period_const1, 1
-        v_writelane_b32 skip_this_key, l_period_const2, 2
-        v_writelane_b32 skip_this_key, l_phase, 3
-        v_writelane_b32 skip_this_key, m_period, 4
-        v_writelane_b32 skip_this_key, m_phase, 5
-        v_writelane_b32 skip_this_key, canInc_l_phase, 6
-        v_writelane_b32 skip_this_key, mr_ring[0], 7
-        v_writelane_b32 skip_this_key, mr_ring[1], 8
-        v_writelane_b32 skip_this_key, l_mesg, 9
-        v_writelane_b32 skip_this_key, r_mesg, 10
-        v_writelane_b32 skip_this_key, m_mesg, 11
-        s_mov_b64 exec, 1|(((1<<12)-1)<<1)
-        ds_write_b32 lid4, skip_this_key offset:LocalTemps
-        s_waitcnt lgkmcnt(0)
-        ComputeScramblerIndexFree
-    .endif
-        
-    
-        #############################
-        # skiponewave
-        ##############################
-.ifgt TASK_SIZE-64
-skipOneWave:
-.endif
-    .ifeq DEBUG_PART
-        s_endpgm
-    .endif
-    RestorePool oldPool0
-        Barrier
-    .ifgt TASK_SIZE-64
-        VRegAlloc1 tid4
-        s_mov_b64 exec, 1|(((1<<12)-1)<<1)
-        v_and_b32 tid4, 63<<2, lid4
-        ds_read_b32 skip_this_key, tid4 offset:LocalTemps
-        s_waitcnt lgkmcnt(0)
-        RegFree tid4
-    .endif
-        s_mov_b64 exec, 1
-        v_cmp_eq_u32 vcc, 1, skip_this_key
-        s_cbranch_vccz toProcess
-    SavePool OldPool
-        RegFree skip_this_key
-        
-        # end of processing: this is not task
-    .ifgt TASK_SIZE-64
-        v_cmpx_eq_u32 vcc, lid, 0
-        s_cbranch_execz endOfClimb0
-    .endif
-    
-    .iffmt amdcl2
-        .if32
-            SRegAlloc1 taskResults
-            s_load_dword taskResults, argsPtr, SMUL*taskResults_arg
-        .else # 64-bit
-            SRegAlloc4A taskResults_res
-            s_load_dwordx2 taskResults_res[0:1], argsPtr, SMUL*taskResults_arg
-            s_movk_i32 taskResults_res[2], 0xffff
-            s_mov_b32 taskResults_res[3], 0x8027fac
-        .endif
-    .elseiffmt amd
-        SRegAlloc4A taskResults_res
-        s_load_dwordx4 taskResults_res, uavTablePtr, SMUL*8*taskResults_uav
-        .if32
-            SRegAlloc1 taskResults
-            s_buffer_load_dword taskResults, constBuf1Res, SMUL*taskResults_arg
-        .else
-            SRegAlloc2A taskResults
-            s_buffer_load_dwordx2 taskResults, constBuf1Res, SMUL*taskResults_arg
-        .endif
-    .endif
-        s_waitcnt lgkmcnt(0)
-        s_mov_b64 exec, 1 # only lane
-        VRegAlloc1At gidv, 1
-        v_mov_b32 gidv, gid
-        v_mov_b32 lid, -1 # score=-1, index = 
-    
-    .iffmt amdcl2
-        s_mul_i32 gid, gid, ResultSize
-        .if32
-            s_add_u32 taskResults[0], taskResults[0], gid
-            buffer_store_dwordx2 v[0:1], v0, bufres, taskResults offset:28
-            RegFree taskResults
-        .else
-            buffer_store_dwordx2 v[0:1], v0, taskResults_res, gid offset:28
-            RegFree taskResults_res
-        .endif
-    .elseiffmt amd
-        s_mul_i32 gid, gid, ResultSize
-        s_add_u32 taskResults[0], taskResults[0], gid
-        .if32
-            buffer_store_dwordx2 v[0:1], v0, taskResults_res, taskResults offset:28
-        .else
-            s_addc_u32 taskResults[1], taskResults[1], 0
-            s_add_u32 taskResults_res[0], taskResults_res[0], taskResults[0]
-            s_addc_u32 taskResults_res[1], taskResults_res[1], taskResults[1]
-            buffer_store_dwordx2 v[0:1], v0, taskResults_res, 28
-        .endif
-        RegFree taskResults
-        RegFree taskResults_res
-    .endif
-    
-    .ifgt TASK_SIZE-64
-endOfClimb0:
-    .endif
-        s_endpgm
     /*
      *---------------------------------
      * ToProcess
      * ---------------------
      */
         
-toProcess:
-    RestorePool OldPool
-        s_mov_b64 exec, -1
         v_cmpx_gt_u32 vcc, TASK_SIZE, lid
         SRegAlloc2A taskSizeExec
         s_mov_b64 taskSizeExec, exec
         
-    .ifgt TASK_SIZE-64
-        SRegAlloc1 l_period_const1
-        SRegAlloc1 l_period_const2
-        SRegAlloc1 l_phase
-        SRegAlloc1 m_period
-        SRegAlloc1 m_phase
-        SRegAlloc1 canInc_l_phase
-        v_readlane_b32 l_period_const1, skip_this_key, 1
-        v_readlane_b32 l_period_const2, skip_this_key, 2
-        v_readlane_b32 l_phase, skip_this_key, 3
-        v_readlane_b32 m_period, skip_this_key, 4
-        v_readlane_b32 m_phase, skip_this_key, 5
-        v_readlane_b32 canInc_l_phase, skip_this_key, 6
-        v_readlane_b32 mr_ring[0], skip_this_key, 7
-        v_readlane_b32 mr_ring[1], skip_this_key, 8
-        v_readlane_b32 l_mesg, skip_this_key, 9
-        v_readlane_b32 r_mesg, skip_this_key, 10
-        v_readlane_b32 m_mesg, skip_this_key, 11
-    .endif
+        s_add_u32 tempClimbData[0], tempClimbData[0], gid48
+        s_addc_u32 tempClimbData[1], tempClimbData[1], 0
+        RegFree gid48
+        
+        SRegAlloc4A compScData0
+        SRegAlloc4A compScData1
+        SRegAlloc1 compScData2
+        l_period_const1 = %compScData0[0]
+        l_period_const2 = %compScData0[1]
+        l_phase = %compScData0[2]
+        m_period = %compScData0[3]
+        m_phase = %compScData1[0]
+        canInc_l_phase = %compScData1[1]
+        l_mesg = %compScData1[2]
+        m_mesg = %compScData1[3]
+        r_mesg = %compScData2[0]
+        
+        s_load_dwordx4 compScData0, tempClimbData, 1*SMUL
+        s_load_dwordx4 compScData1, tempClimbData, 5*SMUL
+        s_load_dword compScData2, tempClimbData, 9*SMUL
+        RegFree tempClimbData
+        s_waitcnt lgkmcnt(0)
         
         /*  if (lid < block.count)
             {
@@ -1761,7 +2331,10 @@ toProcess:
         VRegAlloc1 scramblerIndex
         ComputeScramblerIndexNextV lid, scramblerIndex
         v_mul_u32_u24 scramblerIndex, SCRAMBLER_PITCH, scramblerIndex
-        ComputeScramblerIndexFree
+        #ComputeScramblerIndexFree
+        RegFree compScData0
+        RegFree compScData1
+        RegFree compScData2
         /* scrambling_table = ScramblerToShared(g_scrambling_table,
                         shared_scrambling_table, lid); */
         
@@ -1771,8 +2344,8 @@ toProcess:
         
         # load scramblerData
         # load d_ciphertext
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             SRegAlloc1 scramblerData
             SRegAlloc1 d_ciphertext
             s_load_dword scramblerData, argsPtr, scramblerData_arg*SMUL
@@ -1792,7 +2365,7 @@ toProcess:
         SRegAlloc4A d_ciphertext_res
         s_load_dwordx4 scramblerData_res, uavTablePtr, SMUL*8*scramblerData_uav
         s_load_dwordx4 d_ciphertext_res, uavTablePtr, SMUL*8*d_ciphertext_uav
-        .if32
+        .ifeq ADDRBITS-32
             SRegAlloc1 scramblerData
             SRegAlloc1 d_ciphertext
             s_buffer_load_dword scramblerData, constBuf1Res, SMUL*scramblerData_arg
@@ -1812,8 +2385,8 @@ toProcess:
         VRegAlloc4 tmpv0_4
         VRegAlloc4 tmpv1_3
         VRegAlloc1 cipherLetter
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             buffer_load_dwordx4 tmpv0_4, voffset, bufres, scramblerData offen
             buffer_load_dwordx3 tmpv1_3[0:2], voffset, bufres, scramblerData offen offset:16
             buffer_load_sbyte cipherLetter, lid, bufres, d_ciphertext offen
@@ -1821,13 +2394,18 @@ toProcess:
             RegFree d_ciphertext
         .else
             buffer_load_dwordx4 tmpv0_4, voffset, scramblerData_res, 0 offen
+        .ifeq ARCH-GCN10
+            tbuffer_load_format_xyz tmpv1_3[0:2], voffset, scramblerData_res, 16 \
+                offen format:[32_32_32,float]
+        .else
             buffer_load_dwordx3 tmpv1_3[0:2], voffset, scramblerData_res, 16 offen
+        .endif
             buffer_load_sbyte cipherLetter, lid, d_ciphertext_res, 0 offen
             RegFree scramblerData_res
             RegFree d_ciphertext_res
         .endif
     .elseiffmt amd
-        .if32
+        .ifeq ADDRBITS-32
             buffer_load_dwordx4 tmpv0_4, voffset, scramblerData_res, scramblerData offen
             tbuffer_load_format_xyz tmpv1_3[0:2], voffset, scramblerData_res, \
                         scramblerData offen offset:16 format:[32_32_32,float]
@@ -1849,18 +2427,22 @@ toProcess:
     .endif
     
         # prepare d_order ptr
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             SRegAlloc1 d_order
             s_load_dword d_order, argsPtr, SMUL*d_order_arg
         .else
+        .ifeq ARCH-GCN10
+            SRegAlloc4A d_order
+        .else
             SRegAlloc2A d_order
-            s_load_dwordx2 d_order, argsPtr, SMUL*d_order_arg
+        .endif
+            s_load_dwordx2 d_order[0:1], argsPtr, SMUL*d_order_arg
         .endif
     .elseiffmt amd
         SRegAlloc4A d_order_res
         s_load_dwordx4 d_order_res, uavTablePtr, SMUL*8*d_order_uav
-        .if32
+        .ifeq ADDRBITS-32
             SRegAlloc1 d_order
             s_buffer_load_dword d_order, constBuf1Res, SMUL*d_order_arg
         .else
@@ -1889,9 +2471,14 @@ toProcess:
         v_cmpx_gt_u32 vcc, ALPSIZE, d_orderVal
     
         # load d_order to
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             buffer_load_sbyte d_orderVal, d_orderVal, bufres, d_order offen
+        .else
+        .ifeq ARCH-GCN10
+            s_movk_i32 d_order[2], 0xffff
+            s_mov_b32 d_order[3], 0x8027fac
+            buffer_load_sbyte d_orderVal, d_orderVal, d_order, 0 offen
         .else
             VRegAlloc2 tmpaddr
             VADD_U32 tmpaddr[0], vcc, d_order[0], d_orderVal
@@ -1900,9 +2487,10 @@ toProcess:
             flat_load_sbyte d_orderVal, tmpaddr
             RegFree tmpaddr
         .endif
+        .endif
         RegFree d_order
     .elseiffmt amd
-        .if32
+        .ifeq ADDRBITS-32
             buffer_load_sbyte d_orderVal, d_orderVal, d_order_res, d_order offen
         .else
             s_add_u32 d_order_res[0], d_order_res[0], d_order[0]
@@ -1930,7 +2518,7 @@ toProcess:
         #RegFree dsoffset
         #dsoffset - offset to local scrambler
         SRegAlloc1 d_fixed
-    .iffmt amdcl2
+    .if AMDCL2_OR_GALLIUM
         s_load_dword d_fixed, argsPtr, SMUL*d_fixed_arg
     .elseiffmt amd
         s_buffer_load_dword d_fixed, constBuf1Res, SMUL*d_fixed_arg
@@ -2483,8 +3071,8 @@ tryswapstopuni: s_endpgm
      ***********************/
 .ifne SCORE_KINDS&skBigram
 CUR_SCORE_KIND = skBigram
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             SRegAlloc1 d_bigrams
             s_load_dword d_bigrams, argsPtr, SMUL*d_bigrams_arg
         .else
@@ -2496,7 +3084,7 @@ CUR_SCORE_KIND = skBigram
     .elseiffmt amd
         SRegAlloc4A d_bigrams_res
         s_load_dwordx4 d_bigrams_res, uavTablePtr, SMUL*8*d_bigrams_uav
-        .if32
+        .ifeq ADDRBITS-32
             SRegAlloc1 d_bigrams
             s_buffer_load_dword d_bigrams, constBuf1Res, SMUL*d_bigrams_arg
         .else
@@ -2507,7 +3095,7 @@ CUR_SCORE_KIND = skBigram
         s_waitcnt lgkmcnt(0)
     
     .iffmt amd
-        .if64
+        .ifeq ADDRBITS-64
             s_add_u32 d_bigrams_res[0], d_bigrams_res[0], d_bigrams[0]
             s_addc_u32 d_bigrams_res[1], d_bigrams_res[1], d_bigrams[1]
         .endif
@@ -2535,21 +3123,41 @@ CUR_SCORE_KIND = skBigram
         s_waitcnt lgkmcnt(0)
         
         v_mad_u32_u24 cvaddr, ALPSIZE, cv, cvaddr
+    .if SHORT_BIGRAMS
+        v_lshlrev_b32 cvaddr, 1, cvaddr
+    .else
         v_lshlrev_b32 cvaddr, 2, cvaddr
+    .endif
         
-        .iffmt amdcl2
-            .if32
+    .if SHORT_BIGRAMS
+        .if AMDCL2_OR_GALLIUM
+            .ifeq ADDRBITS-32
+                buffer_load_ushort vone, cvaddr, bufres, d_bigrams offen
+            .else
+                buffer_load_ushort vone, cvaddr, d_bigrams_res, 0 offen
+            .endif
+        .elseiffmt amd
+            .ifeq ADDRBITS-32
+                buffer_load_ushort vone, cvaddr, d_bigrams_res, d_bigrams offen
+            .else
+                buffer_load_ushort vone, cvaddr, d_bigrams_res, 0 offen
+            .endif
+        .endif
+    .else
+        .if AMDCL2_OR_GALLIUM
+            .ifeq ADDRBITS-32
                 buffer_load_dword vone, cvaddr, bufres, d_bigrams offen
             .else
                 buffer_load_dword vone, cvaddr, d_bigrams_res, 0 offen
             .endif
         .elseiffmt amd
-            .if32
+            .ifeq ADDRBITS-32
                 buffer_load_dword vone, cvaddr, d_bigrams_res, d_bigrams offen
             .else
                 buffer_load_dword vone, cvaddr, d_bigrams_res, 0 offen
             .endif
         .endif
+    .endif
         s_waitcnt vmcnt(0)
         s_mov_b64 exec, -1
         .ifge ARCH-GCN12
@@ -2686,8 +3294,8 @@ tryswapstopbi: s_endpgm
         RegFree d_bigrams
         RegFree d_bigrams_res
     .endif
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             RegFree d_bigrams
         .else
             RegFree d_bigrams_res
@@ -2700,8 +3308,8 @@ tryswapstopbi: s_endpgm
      ***********************/
 .ifne SCORE_KINDS&skTrigram
 CUR_SCORE_KIND = skTrigram
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             SRegAlloc1 trigramsData
             s_load_dword trigramsData, argsPtr, SMUL*trigramsData_arg
         .else
@@ -2713,7 +3321,7 @@ CUR_SCORE_KIND = skTrigram
     .elseiffmt amd
         SRegAlloc4A trigramsData_res
         s_load_dwordx4 trigramsData_res, uavTablePtr, SMUL*8*trigramsData_uav
-        .if32
+        .ifeq ADDRBITS-32
             SRegAlloc1 trigramsData
             s_buffer_load_dword trigramsData, constBuf1Res, SMUL*trigramsData_arg
         .else
@@ -2724,7 +3332,7 @@ CUR_SCORE_KIND = skTrigram
         s_waitcnt lgkmcnt(0)
     
     .iffmt amd
-        .if64
+        .ifeq ADDRBITS-64
             s_add_u32 trigramsData_res[0], trigramsData_res[0], trigramsData[0]
             s_addc_u32 trigramsData_res[1], trigramsData_res[1], trigramsData[1]
         .endif
@@ -2765,8 +3373,13 @@ CUR_SCORE_KIND = skTrigram
         
         v_mad_u32_u24 cvaddr, ALPSIZE, cv, cvaddr
         s_waitcnt lgkmcnt(0)
+    .if SHORT_TRIGRAMS
+        v_mad_u32_u24 cvaddr, TRIGRAMS_PITCH>>1, cvaddr, cvaddr2
+        v_lshlrev_b32 cvaddr, 1, cvaddr
+    .else
         v_mad_u32_u24 cvaddr, TRIGRAMS_PITCH>>2, cvaddr, cvaddr2
         v_lshlrev_b32 cvaddr, 2, cvaddr
+    .endif
     
     /*.if DEBUG
         s_not_b64 exec, exec
@@ -2774,20 +3387,36 @@ CUR_SCORE_KIND = skTrigram
         s_not_b64 exec, exec
         DUMP_VREG cvaddr
     .endif*/
-        
-        .iffmt amdcl2
-            .if32
+    
+    .if SHORT_TRIGRAMS
+        .if AMDCL2_OR_GALLIUM
+            .ifeq ADDRBITS-32
+                buffer_load_ushort vone, cvaddr, bufres, trigramsData offen
+            .else
+                buffer_load_ushort vone, cvaddr, trigramsData_res, 0 offen
+            .endif
+        .elseiffmt amd
+            .ifeq ADDRBITS-32
+                buffer_load_ushort vone, cvaddr, trigramsData_res, trigramsData offen
+            .else
+                buffer_load_ushort vone, cvaddr, trigramsData_res, 0 offen
+            .endif
+        .endif
+    .else
+        .if AMDCL2_OR_GALLIUM
+            .ifeq ADDRBITS-32
                 buffer_load_dword vone, cvaddr, bufres, trigramsData offen
             .else
                 buffer_load_dword vone, cvaddr, trigramsData_res, 0 offen
             .endif
         .elseiffmt amd
-            .if32
+            .ifeq ADDRBITS-32
                 buffer_load_dword vone, cvaddr, trigramsData_res, trigramsData offen
             .else
                 buffer_load_dword vone, cvaddr, trigramsData_res, 0 offen
             .endif
         .endif
+    .endif
         s_waitcnt vmcnt(0)
     /*.if DEBUG
         DUMP_VREG vone
@@ -2943,8 +3572,8 @@ tryswapstop: s_endpgm
         RegFree trigramsData
         RegFree trigramsData_res
     .endif
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             RegFree trigramsData
         .else
             RegFree trigramsData_res
@@ -3005,8 +3634,8 @@ tryswapstoptri: s_endpgm
         s_cbranch_execz skipWriteResults
     .endif
         
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             SRegAlloc1 taskResults
             s_load_dword taskResults, argsPtr, SMUL*taskResults_arg
         .else # 64-bit
@@ -3018,7 +3647,7 @@ tryswapstoptri: s_endpgm
     .elseiffmt amd
         SRegAlloc4A taskResults_res
         s_load_dwordx4 taskResults_res, uavTablePtr, SMUL*8*taskResults_uav
-        .if32
+        .ifeq ADDRBITS-32
             SRegAlloc1 taskResults
             s_buffer_load_dword taskResults, constBuf1Res, SMUL*taskResults_arg
         .else
@@ -3040,8 +3669,8 @@ tryswapstoptri: s_endpgm
         s_waitcnt lgkmcnt(0)
     .endif
     SRegAlloc1 resultOffset
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             s_mul_i32 resultOffset, gid, ResultSize
             s_add_u32 taskResults[0], taskResults[0], resultOffset
             buffer_store_byte d_plugsVal, lid, bufres, taskResults offen
@@ -3054,7 +3683,7 @@ tryswapstoptri: s_endpgm
     .elseiffmt amd
         s_mul_i32 resultOffset, gid, ResultSize
         s_add_u32 taskResults[0], taskResults[0], resultOffset
-        .if32
+        .ifeq ADDRBITS-32
             buffer_store_byte d_plugsVal, lid, taskResults_res, taskResults offen
         .else
             s_addc_u32 taskResults[1], taskResults[1], 0
@@ -3069,8 +3698,8 @@ tryswapstoptri: s_endpgm
         VRegAlloc1At gidv, 1
         v_mov_b32 lid, score
         v_mov_b32 gidv, gid
-    .iffmt amdcl2
-        .if32
+    .if AMDCL2_OR_GALLIUM
+        .ifeq ADDRBITS-32
             buffer_store_dwordx2 v[0:1], v0, bufres, taskResults offset:28
             RegFree taskResults
         .else
@@ -3078,7 +3707,7 @@ tryswapstoptri: s_endpgm
             RegFree taskResults_res
         .endif
     .elseiffmt amd
-        .if32
+        .ifeq ADDRBITS-32
             buffer_store_dwordx2 v[0:1], v0, taskResults_res, taskResults offset:28
         .else
             buffer_store_dwordx2 v[0:1], v0, taskResults_res, 28
@@ -3091,3 +3720,4 @@ skipWriteResults:
     .endif
     
         s_endpgm
+.ends

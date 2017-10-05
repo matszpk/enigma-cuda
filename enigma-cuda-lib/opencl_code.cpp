@@ -6,7 +6,6 @@
 
 #define __CLPP_CL_ABI_VERSION 101
 #define __CLPP_CL_VERSION 101
-#define __CLPP_CL_EXT 1
 
 #include <stdexcept>
 #include <iostream>
@@ -37,14 +36,18 @@
 #define CL_DEVICE_BOARD_NAME_AMD                    0x4038
 #endif
 
+//#define DEBUG_GENSCRAMBLER 1
+//#define DEBUG_CLIMBINIT 1
 //#define DEBUG_CLIMB 1
 #define DEBUG_DUMP 0
 //#define DEBUG_RESULTS 1
+//#define DEBUG_BESTRESULT 1
 
 // comment when application must accept any OpenCL platform
 #define ACCEPT_ONLY_PREFERRED_PLATFORM 1
 // for AMD
 #define PLATFORM_VENDOR "Advanced Micro Devices, Inc."
+#define PLATFORM_VENDOR_2 "Mesa"
 // for NVIDIA
 //#define PLATFORM_VENDOR "NVIDIA Corporation"
 
@@ -57,6 +60,8 @@ static clpp::Program oclClrxProgram;
 static clpp::CommandQueue oclCmdQueue;
 static clpp::Kernel GenerateScramblerKernel;
 static size_t GenerateScramblerKernelWGSize;
+static clpp::Kernel ClimbInitKernel;
+static size_t ClimbInitKernelWGSize;
 static clpp::Kernel ClimbKernel;
 static size_t ClimbKernelWGSize;
 static clpp::Kernel FindBestResultKernel;
@@ -88,6 +93,12 @@ static size_t d_tempSize = 0;
 static clpp::Buffer resultsBuffer;
 static size_t trigramsBufferPitch;
 static clpp::Buffer trigramsBuffer;
+// temporary data - for ComputeScramblerIndex, and for tasks
+static clpp::Buffer climbTempBuffer;
+
+static bool shortBigrams = false;
+static bool shortTrigrams = false;
+static bool haveGallium = false;
 
 #ifdef HAVE_CLRX
 using namespace CLRX;
@@ -103,6 +114,30 @@ int8_t mod26(const int16_t x)
 
 };
 
+#ifdef DEBUG_CLIMBINIT
+union ClimbInitEntry
+{
+  struct
+  {
+      int skip_this_key;
+      int l_period_const1;
+      int l_period_const2;
+      int l_phase;
+      int m_period;
+      int m_phase;
+      int canInc_l_phase;
+      int l_mesg;
+      int m_mesg;
+      int r_mesg;
+      int unused1, unused2;
+  };
+  int values[12];
+};
+
+static ClimbInitEntry* expectedClimbInitTempData = NULL;
+static clpp::Buffer vregDumpBuffer2;
+#endif
+
 #ifdef DEBUG_CLIMB
 static int debugPart = -1; // full test
   #if DEBUG_DUMP&1
@@ -112,6 +147,9 @@ static clpp::Buffer sregDumpBuffer;
 static clpp::Buffer vregDumpBuffer;
   #endif
 
+#endif
+
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
 struct dim3
 {
     size_t x, y, z;
@@ -131,7 +169,7 @@ static bool d_fixed[ALPSIZE];
   #if DEBUG_DUMP&1
 static cl_uint* expectedSRegs = NULL;
   #endif
-  #if DEBUG_DUMP&2
+  #if (DEBUG_DUMP&2) || DEBUG_CLIMBINIT
 static cl_uint* expectedVRegs = NULL;
   #endif
 
@@ -144,7 +182,7 @@ void SetUpScramblerMemory()
   scramblerDataPitch = (28 + 15) & ~size_t(15);
   scramblerDataBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE,
                   scramblerDataPitch*ALPSIZE_TO3);
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   d_wiring = wiring;
   scramblerData = (int8_t*)::malloc(scramblerDataPitch*ALPSIZE_TO3);
   task.scrambler.pitch = scramblerDataPitch;
@@ -157,9 +195,12 @@ void SetUpScramblerMemory()
 #endif
     ClimbKernel.setArg(3, cl_uint(scramblerDataPitch));
   ClimbKernel.setArg(4 - int(useClrxAssembly)*2, scramblerDataBuffer);
+#ifdef DEBUG_CLIMBINIT
+  expectedClimbInitTempData = new ClimbInitEntry[ALPSIZE_TO3];
+#endif
 }
 
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
 void GenerateScramblerKernelHost(dim3 blockIdx, dim3 threadIdx)
 {
   const int8_t * reflector;
@@ -240,7 +281,7 @@ void GenerateScramblerKernelHost(dim3 blockIdx, dim3 threadIdx)
 
 void GenerateScrambler(const Key & key)
 {
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   std::cout << "\nGenerateScrambler call\n" << std::endl;
   { // clear buffer before generating
     clpp::BufferMapping mapping(oclCmdQueue, scramblerDataBuffer, true, CL_MAP_WRITE,
@@ -253,8 +294,8 @@ void GenerateScrambler(const Key & key)
   clpp::Size3  dimGrid(ALPSIZE>>thBlockShift, ALPSIZE, ALPSIZE);
   clpp::Size3 dimBlock(GenerateScramblerKernelWGSize, 1, 1);
   dimGrid[0] *= dimBlock[0];
-  oclCmdQueue.enqueueNDRangeKernel(GenerateScramblerKernel, dimGrid, dimBlock).wait();
-#ifdef DEBUG_CLIMB
+  oclCmdQueue.enqueueNDRangeKernel(GenerateScramblerKernel, dimGrid, dimBlock);
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT) || defined(DEBUG_GENSCRAMBLER)
   d_key = key;
   // for comparison
   dim3 threadIdx = { 0, 0 ,0 };
@@ -264,6 +305,33 @@ void GenerateScrambler(const Key & key)
           for (blockIdx.x = 0; blockIdx.x < ALPSIZE; blockIdx.x++)
               for (threadIdx.x = 0; threadIdx.x < ALPSIZE; threadIdx.x++)
                   GenerateScramblerKernelHost(blockIdx, threadIdx);
+  #ifdef DEBUG_GENSCRAMBLER
+  std::cout << "Checking GenerateScrambler" << std::endl;
+  bool error = false;
+  // compare results
+  {
+    clpp::BufferMapping mapping(oclCmdQueue, scramblerDataBuffer, true, CL_MAP_READ, 0, 
+                          scramblerDataPitch*ALPSIZE_TO3);
+    const int8_t* scramblerResult = (const int8_t*)mapping.get();
+    for (size_t i = 0; i < ALPSIZE_TO3; i++)
+    {
+      const int8_t* exentry = task.scrambler.data + scramblerDataPitch*i;
+      const int8_t* resentry = scramblerResult + scramblerDataPitch*i;
+      for (size_t j = 0; j < ALPSIZE; j++)
+        if (exentry[j] != resentry[j])
+        {
+          error = true;
+          std::cerr << "Scrambler data not match in [" << i << "," << j << "]: " <<
+              int(exentry[j]) << "!=" << int(resentry[j]) << "\n";
+        }
+    }
+  }
+  if (error)
+  {
+    std::cout << "\nhave errors\n";
+    exit(1);
+  }
+  #endif
 #endif
 }
 
@@ -282,7 +350,7 @@ static int OpenCL_cipher_length = 0;
 
 void setUpConfig(int turnover_modes, int score_kinds, int cipher_length)
 {
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   std::cout << "turnover_modes: " << turnover_modes << ", score_kinds: " <<
           score_kinds << std::endl;
 #endif
@@ -295,12 +363,40 @@ void setUpConfig(int turnover_modes, int score_kinds, int cipher_length)
 #ifdef HAVE_CLRX
 static bool prepareAssemblyOfClimbKernel()
 {
+  std::string platformName = oclDevice.getPlatform().getName();
+  platformName = trimSpaces(platformName);
+  BinaryFormat binaryFormat = (platformName=="Clover") ? BinaryFormat::GALLIUM :
+            BinaryFormat::AMD;
+  
+  haveGallium = (binaryFormat == BinaryFormat::GALLIUM);
+  
   GPUDeviceType devType = GPUDeviceType::CAPE_VERDE;
+  std::string deviceName = oclDevice.getName();
+  std::string deviceVersion = oclDevice.getVersion();
+  deviceName = trimSpaces(deviceName);
   try
   {
-    std::string deviceName = oclDevice.getName();
-    deviceName = trimSpaces(deviceName);
-    devType = getGPUDeviceTypeFromName(deviceName.c_str());
+    if (binaryFormat == BinaryFormat::GALLIUM)
+    {
+      const char* sptr = ::strstr(deviceName.c_str(), "(AMD ");
+      const char* devNamePtr = deviceName.c_str();
+      // if form 'AMD Radeon xxx (AMD CODENAME /...)
+      if (sptr != nullptr) // if found 'AMD ';
+          devNamePtr = sptr+5;
+      else
+      {
+          // if form 'AMD CODENAME (....
+          sptr = ::strstr(deviceName.c_str(), "AMD ");
+          if (sptr != nullptr) // if found 'AMD ';
+              devNamePtr = sptr+4;
+      }
+      const char* devNameEnd = devNamePtr;
+      while (isAlnum(*devNameEnd)) devNameEnd++;
+      string devNameTmp(devNamePtr, devNameEnd);
+      devType = getGPUDeviceTypeFromName(devNameTmp.c_str());
+    }
+    else // AMD-APP
+      devType = getGPUDeviceTypeFromName(deviceName.c_str());
   }
   catch(const CLRX::Exception& ex)
   { return false; }
@@ -312,24 +408,81 @@ static bool prepareAssemblyOfClimbKernel()
     useCL1 = clrxClimbLegacy!=NULL && ::strcmp(clrxClimbLegacy, "1")==0;
   }
   
+  cxuint mesaVersion = 0;
+  cxuint llvmVersion = 0;
   cxuint amdappVersion = 0;
+  if (binaryFormat == BinaryFormat::AMD || binaryFormat == BinaryFormat::AMDCL2)
   {
     const std::string driverVersion = oclDevice.getDriverVersion();
     cxuint major, minor;
     sscanf(driverVersion.c_str(), "%u.%u", &major, &minor);
     amdappVersion = major*100+minor;
+    if (amdappVersion < 138400)
+      return false; // old driver not supported
   }
-  if (amdappVersion < 138400)
-    return false; // old driver not supported
-  BinaryFormat binaryFormat = BinaryFormat::AMD;
+  
   bool defaultCL2ForDriver = false;
   if (amdappVersion >= 200406 && !useCL1)
     defaultCL2ForDriver = true;
   
-  if (defaultCL2ForDriver && arch >= GPUArchitecture::GCN1_1)
+  if (binaryFormat == BinaryFormat::GALLIUM)
+  {
+    const char* llvmPart = strstr(deviceName.c_str(), "LLVM ");
+    if (llvmPart!=nullptr)
+    {
+      try
+      {
+        // parse LLVM version
+        const char* majorVerPart = llvmPart+5;
+        const char* minorVerPart;
+        const char* end;
+        cxuint majorVersion = cstrtoui(majorVerPart, nullptr, minorVerPart);
+        if (*minorVerPart!=0)
+        {
+          minorVerPart++; // skip '.'
+          cxuint minorVersion = cstrtoui(minorVerPart, nullptr, end);
+          llvmVersion = majorVersion*10000U + minorVersion*100U;
+        }
+      }
+      catch(const ParseException& ex)
+      { } // ignore error
+    }
+    
+    const char* mesaPart = strstr(deviceVersion.c_str(), "Mesa ");
+    if (mesaPart==nullptr)
+        mesaPart = strstr(deviceVersion.c_str(), "MESA ");
+    if (mesaPart!=nullptr)
+    {
+      try
+      {
+        // parse Mesa3D version
+        const char* majorVerPart = mesaPart+5;
+        const char* minorVerPart;
+        const char* end;
+        cxuint majorVersion = cstrtoui(majorVerPart, nullptr, minorVerPart);
+        if (*minorVerPart!=0)
+        {
+          minorVerPart++; // skip '.'
+          cxuint minorVersion = cstrtoui(minorVerPart, nullptr, end);
+          mesaVersion = majorVersion*10000U + minorVersion*100U;
+        }
+      }
+      catch(const ParseException& ex)
+      { } // ignore error
+    }
+  }
+  
+  if (binaryFormat==BinaryFormat::AMD && defaultCL2ForDriver &&
+        arch >= GPUArchitecture::GCN1_1)
     binaryFormat = BinaryFormat::AMDCL2;
   
-  const cl_uint bits = oclDevice.getAddressBits();
+  cl_uint bits = 32;
+  if (binaryFormat == BinaryFormat::AMD || binaryFormat == BinaryFormat::AMDCL2)
+    bits = oclDevice.getAddressBits();
+  else if (binaryFormat == BinaryFormat::GALLIUM && sizeof(void*)==8)
+  {
+    bits = (llvmVersion>=30900) ? 64 : 32;
+  }
   // try to compile code
   Array<cxbyte> binary;
   const char* asmSource = (const char*)___enigma_cuda_lib_climb_clrx;
@@ -338,13 +491,25 @@ static bool prepareAssemblyOfClimbKernel()
     ArrayIStream astream(asmSourceSize, asmSource);
     Assembler assembler("", astream, 0, binaryFormat, devType, std::cerr, std::cerr);
     assembler.set64Bit(bits==64);
-    assembler.setDriverVersion(amdappVersion);
+    if (binaryFormat == BinaryFormat::AMD || binaryFormat == BinaryFormat::AMDCL2)
+      assembler.setDriverVersion(amdappVersion);
+    else
+    {
+      assembler.setDriverVersion(mesaVersion);
+      assembler.setLLVMVersion(llvmVersion);
+    }
     assembler.addInitialDefSym("SCRAMBLER_PITCH", (28 + 15) & ~size_t(15));
     assembler.addInitialDefSym("SCRAMBLER_STRIDE", SCRAMBLER_STRIDE);
-    assembler.addInitialDefSym("TRIGRAMS_PITCH", sizeof(NGRAM_DATA_TYPE) * ALPSIZE);
+    assembler.addInitialDefSym("TRIGRAMS_PITCH",
+              (shortTrigrams ? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)) * ALPSIZE);
     assembler.addInitialDefSym("SCORE_KINDS", OpenCL_score_kinds);
     assembler.addInitialDefSym("TURNOVER_MODES", OpenCL_turnover_modes);
     assembler.addInitialDefSym("TASK_SIZE", OpenCL_cipher_length);
+    assembler.addInitialDefSym("SHORT_BIGRAMS", shortBigrams);
+    assembler.addInitialDefSym("SHORT_TRIGRAMS", shortTrigrams);
+#ifdef DEBUG_CLIMBINIT
+    //assembler.addInitialDefSym("DEBUG_CLIMBINIT", 1);
+#endif
 #ifdef DEBUG_CLIMB
     if (debugPart!=-1)
       assembler.addInitialDefSym("DEBUG", DEBUG_DUMP);
@@ -366,6 +531,7 @@ static bool prepareAssemblyOfClimbKernel()
     oclClrxProgram.build("-cl-std=CL2.0");
   else // default
     oclClrxProgram.build();
+  ClimbInitKernel = clpp::Kernel(oclClrxProgram, "ClimbInitKernel");
   ClimbKernel = clpp::Kernel(oclClrxProgram, "ClimbKernel");
   return true;
 }
@@ -405,7 +571,11 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   {
     std::string vendor = platforms[i].getVendor();
     vendor = trimSpaces(vendor);
+#ifdef PLATFORM_VENDOR_2
+    if (vendor==PLATFORM_VENDOR || vendor==PLATFORM_VENDOR_2)
+#else
     if (vendor==PLATFORM_VENDOR)
+#endif
     {
       platformIndex = i;
       break;
@@ -414,11 +584,22 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   if (platformIndex==-1)
   {
 #ifdef ACCEPT_ONLY_PREFERRED_PLATFORM
-    std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR <<
+    std::cerr << "Preferred OpenCL platform vendor (" <<
+#ifdef PLATFORM_VENDOR_2
+                PLATFORM_VENDOR << " or " << PLATFORM_VENDOR_2 <<
+#else
+                PLATFORM_VENDOR <<
+#endif
           ") not found." << std::endl;
     return false; // not found
 #else
-    std::cerr << "Preferred OpenCL platform vendor (" << PLATFORM_VENDOR << ") not found.\r\n"
+    std::cerr << "Preferred OpenCL platform vendor (" <<
+#ifdef PLATFORM_VENDOR_2
+                PLATFORM_VENDOR << " or " << PLATFORM_VENDOR_2 <<
+#else
+                PLATFORM_VENDOR <<
+#endif
+                ") not found.\r\n"
         "Use first OpenCL platform\r\n";
     platformIndex = 0;
 #endif
@@ -512,6 +693,13 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     useClrxAssembly = prepareAssemblyOfClimbKernel();
 #endif
   
+  if (!useClrxAssembly && haveGallium)
+  {
+    std::cerr << "GalliumCompute OpenCL can generate incorrect "
+          "OpenCL code for this program!" << std::endl;
+    return false;
+  }
+  
   int wavefrontSize = 0;
 #ifdef HAVE_CLRX
   if (!useClrxAssembly) // get wavefront size
@@ -521,7 +709,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
                     ___enigma_cuda_lib_opencl_program_cl_len);
   {
-    char optionsBuf[120];
+    char optionsBuf[150];
     size_t len = snprintf(optionsBuf, sizeof optionsBuf, "-DCIPHERTEXT_LEN=%d"
             " -DSCRAMBLER_STRIDE=%d", OpenCL_cipher_length, SCRAMBLER_STRIDE);
 #ifdef HAVE_CLRX
@@ -531,6 +719,10 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 #endif
       snprintf(optionsBuf+len, (sizeof optionsBuf) - len,
                " -DWAVEFRONT_SIZE=%d", wavefrontSize);
+    if (shortBigrams)
+      strcat(optionsBuf, " -DSHORT_BIGRAMS=1");
+    if (shortTrigrams)
+      strcat(optionsBuf, " -DSHORT_TRIGRAMS=1");
     try
     { oclProgram.build(optionsBuf); }
     catch(const clpp::Error& error)
@@ -543,7 +735,10 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 #ifdef HAVE_CLRX
   if (!useClrxAssembly) // if not compiled in Assembler code
 #endif
+  {
+    ClimbInitKernel = clpp::Kernel(oclProgram, "ClimbInitKernel");
     ClimbKernel = clpp::Kernel(oclProgram, "ClimbKernel");
+  }
   FindBestResultKernel = clpp::Kernel(oclProgram, "FindBestResultKernel");
   FindBestResultKernel2 = clpp::Kernel(oclProgram, "FindBestResultKernel");
   
@@ -560,6 +755,10 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
   GenerateScramblerKernel.setArg(2, cl_uint(thBlockShift));
   GenerateScramblerKernel.setArg(3, cl_uint(localShift));
   
+  if (!useClrxAssembly)
+    ClimbInitKernelWGSize = ClimbInitKernel.getWorkGroupSize(oclDevice);
+  else // if assembly
+    ClimbInitKernelWGSize = 256;
   ClimbKernelWGSize = ClimbKernel.getWorkGroupSize(oclDevice);
   FindBestResultKernelWGSize = FindBestResultKernel.getWorkGroupSize(oclDevice);
   /// buffers
@@ -574,8 +773,11 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     d_fixedBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE);
   d_unigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
                     ALPSIZE*sizeof(NGRAM_DATA_TYPE));
-  d_bigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
-                    ALPSIZE*ALPSIZE*sizeof(NGRAM_DATA_TYPE));
+  d_bigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY, ALPSIZE*ALPSIZE *
+                  (shortBigrams ? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)));
+  climbTempBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE,
+                    sizeof(cl_int)*12*ALPSIZE_TO3);
+  
 #ifdef DEBUG_CLIMB
   #if DEBUG_DUMP&1
   sregDumpBuffer = clpp::Buffer(oclContext, CL_MEM_WRITE_ONLY,
@@ -586,10 +788,16 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
               sizeof(cl_uint)*ALPSIZE_TO3*CLRX_GroupSize*3);
   #endif
 #endif
+#ifdef DEBUG_CLIMBINIT
+  vregDumpBuffer2 = clpp::Buffer(oclContext, CL_MEM_WRITE_ONLY,
+              sizeof(cl_uint)*ALPSIZE_TO3*3);
+#endif
   
   GenerateScramblerKernel.setArgs(d_wiringBuffer, d_keyBuffer);
   
+  ClimbInitKernel.setArgs(d_wiringBuffer, d_keyBuffer);
   ClimbKernel.setArgs(d_wiringBuffer, d_keyBuffer);
+  
   ClimbKernel.setArg(7 - int(useClrxAssembly)*3, d_unigramsBuffer);
   ClimbKernel.setArg(8 - int(useClrxAssembly)*3, d_bigramsBuffer);
   ClimbKernel.setArg(9 - int(useClrxAssembly)*3, d_plugsBuffer);
@@ -599,8 +807,10 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 #endif
     ClimbKernel.setArg(11, d_fixedBuffer);
   ClimbKernel.setArg(12 - int(useClrxAssembly)*3, d_ciphertextBuffer);
+  ClimbInitKernel.setArg(5 - int(useClrxAssembly)*2, climbTempBuffer);
+  ClimbKernel.setArg(14 - int(useClrxAssembly)*3, climbTempBuffer);
 #ifdef DEBUG_CLIMB
-  int argNo = 11;
+  int argNo = 12;
   #if DEBUG_DUMP&1
   if (debugPart!=-1)
     ClimbKernel.setArg(argNo++, sregDumpBuffer);
@@ -610,6 +820,9 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     ClimbKernel.setArg(argNo++, vregDumpBuffer);
   #endif
 #endif
+#ifdef DEBUG_CLIMBINIT
+  //ClimbInitKernel.setArg(4, vregDumpBuffer2);
+#endif
   return true;
 }
 
@@ -618,75 +831,132 @@ void CipherTextToDevice(string ciphertext_string)
   std::vector<int8_t> cipher = TextToNumbers(ciphertext_string);
   int8_t * cipher_data = cipher.data();
   oclCmdQueue.writeBuffer(d_ciphertextBuffer, 0, cipher.size(), cipher_data);
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   ::memcpy(d_ciphertext, cipher_data, cipher.size());
   task.count = (int)cipher.size();
 #endif
 #ifdef HAVE_CLRX
   if (!useClrxAssembly)
 #endif
+  {
+    ClimbInitKernel.setArg(3, cl_uint(cipher.size()));
     ClimbKernel.setArg(2, cl_uint(cipher.size()));
+  }
 }
 
-void NgramsToDevice(const string & uni_filename,        
+static std::unique_ptr<Unigrams> unigrams;
+static std::unique_ptr<Bigrams> bigrams;
+static std::unique_ptr<Trigrams> trigrams_obj;
+
+void LoadNgrams(const string & uni_filename,
             const string & bi_filename, const string & tri_filename)
 {
   if (uni_filename != "")
   {
-    Unigrams unigrams;
-    unigrams.LoadFromFile(uni_filename);
-    oclCmdQueue.writeBuffer(d_unigramsBuffer, 0,
-                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE, unigrams.data);
+    unigrams.reset(new Unigrams());
+    unigrams->LoadFromFile(uni_filename);
+  }
+  if (bi_filename != "")
+  {
+    bigrams.reset(new Bigrams());
+    shortBigrams = true;
+    bigrams->LoadFromFile(bi_filename);
+    for (int i = 0; i < ALPSIZE; i++)
+      for (int j = 0; j < ALPSIZE; j++)
+        if (bigrams->data[i][j]>0xffff || bigrams->data[i][j]<0)
+        { shortBigrams = false; break; }
+  }
+  if (tri_filename != "")
+  {
+    trigrams_obj.reset(new Trigrams());
+    shortTrigrams = true;
+    trigrams_obj->LoadFromFile(tri_filename);
+    for (int i = 0; i < ALPSIZE; i++)
+      for (int j = 0; j < ALPSIZE; j++)
+        for (int k = 0; k < ALPSIZE; k++)
+        if (trigrams_obj->data[i][j][k]>0xffff || trigrams_obj->data[i][j][k]<0)
+        { shortTrigrams = false; break; }
+  }
 #ifdef DEBUG_CLIMB
-    ::memcpy(d_unigrams, unigrams.data, sizeof(d_unigrams));
+  std::cerr << "Short bigrams: " << int(shortBigrams) <<
+        ", Short trigrams: "<< int(shortTrigrams) << std::endl;
+#endif
+}
+
+void NgramsToDevice()
+{
+  if (unigrams)
+  {
+    oclCmdQueue.writeBuffer(d_unigramsBuffer, 0,
+                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE, unigrams->data);
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
+    ::memcpy(d_unigrams, unigrams->data, sizeof(d_unigrams));
 #endif
   }
 
-  if (bi_filename != "")
+  if (bigrams)
   {
-    Bigrams bigrams;
-    bigrams.LoadFromFile(bi_filename);
-    oclCmdQueue.writeBuffer(d_bigramsBuffer, 0,
-                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE, bigrams.data);
-#ifdef DEBUG_CLIMB
-    ::memcpy(d_bigrams, bigrams.data, sizeof(d_bigrams));
+    if (!shortBigrams)
+      oclCmdQueue.writeBuffer(d_bigramsBuffer, 0,
+                    sizeof(NGRAM_DATA_TYPE)*ALPSIZE*ALPSIZE, bigrams->data);
+    else
+    {
+      clpp::BufferMapping mapping(oclCmdQueue, d_bigramsBuffer, true, CL_MAP_WRITE,
+                      0, sizeof(cl_ushort)*ALPSIZE*ALPSIZE);
+      cl_ushort* out = (cl_ushort*)mapping.get();
+      const NGRAM_DATA_TYPE* in = (const NGRAM_DATA_TYPE*)bigrams->data;
+      for (int i = 0; i < ALPSIZE*ALPSIZE; i++)
+        out[i] = in[i];
+    }
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
+    ::memcpy(d_bigrams, bigrams->data, sizeof(d_bigrams));
 #endif
   }
 
   trigramsBufferPitch = 0;
   trigramsBuffer = clpp::Buffer();
-  if (tri_filename != "")
+  if (trigrams_obj)
   {
-    //trigram data
-    Trigrams trigrams_obj;
-    trigrams_obj.LoadFromFile(tri_filename);
-
     //non-pitched array in device memory. slightly faster than pitched
     trigramsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_ONLY,
-                    sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
-    trigramsBufferPitch = sizeof(NGRAM_DATA_TYPE) * ALPSIZE;
-#ifdef DEBUG_CLIMB
+              (shortTrigrams? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)) * ALPSIZE_TO3);
+    trigramsBufferPitch =
+        (shortTrigrams ? sizeof(cl_ushort) : sizeof(NGRAM_DATA_TYPE)) * ALPSIZE;
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
     trigramsData = (NGRAM_DATA_TYPE*)malloc(sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
     task.trigrams.data = (int8_t*)trigramsData;
-    task.trigrams.pitch = trigramsBufferPitch;
+    task.trigrams.pitch = sizeof(NGRAM_DATA_TYPE) * ALPSIZE;
     
     //data to device
-    ::memcpy(trigramsData, trigrams_obj.data, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
+    ::memcpy(trigramsData, trigrams_obj->data, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3);
 #endif
     //data to device
-    oclCmdQueue.writeBuffer(trigramsBuffer, 0, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3,
-                  trigrams_obj.data);
+    if (!shortTrigrams)
+      oclCmdQueue.writeBuffer(trigramsBuffer, 0, sizeof(NGRAM_DATA_TYPE) * ALPSIZE_TO3,
+                  trigrams_obj->data);
+    else
+    {
+      clpp::BufferMapping mapping(oclCmdQueue, trigramsBuffer, true, CL_MAP_WRITE,
+                      0, sizeof(cl_ushort)*ALPSIZE_TO3);
+      cl_ushort* out = (cl_ushort*)mapping.get();
+      const NGRAM_DATA_TYPE* in = (const NGRAM_DATA_TYPE*)trigrams_obj->data;
+      for (int i = 0; i < ALPSIZE_TO3; i++)
+        out[i] = in[i];
+    }
   }
 #ifdef HAVE_CLRX
   if (!useClrxAssembly)
 #endif
     ClimbKernel.setArg(5, cl_uint(trigramsBufferPitch));
   ClimbKernel.setArg(6 - 3*int(useClrxAssembly), trigramsBuffer);
+  unigrams.reset();
+  bigrams.reset();
+  trigrams_obj.reset();
 }
 
 void OrderToDevice(const int8_t * order)
 {
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   ::memcpy(d_order, order, ALPSIZE);
 #endif
   oclCmdQueue.writeBuffer(d_orderBuffer, 0, ALPSIZE, order);
@@ -701,7 +971,7 @@ void PlugboardStringToDevice(string plugboard_string)
 
 void PlugboardToDevice(const Plugboard & plugboard)
 {
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   ::memcpy(d_plugs, plugboard.plugs, ALPSIZE);
   ::memcpy(d_fixed, plugboard.fixed, sizeof(bool)*ALPSIZE);
 #endif
@@ -724,7 +994,7 @@ void PlugboardToDevice(const Plugboard & plugboard)
 void SetUpResultsMemory(int count)
 {
   resultsBuffer = clpp::Buffer(oclContext, CL_MEM_READ_WRITE, count*sizeof(Result));
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   task.results = (Result*)malloc(count*sizeof(Result));
 #endif
   FindBestResultKernel.setArg(0, resultsBuffer);
@@ -737,6 +1007,9 @@ void SetUpResultsMemory(int count)
   #if DEBUG_DUMP&2
   expectedVRegs = new cl_uint[ALPSIZE_TO3*CLRX_GroupSize*3];
   #endif
+#endif
+#ifdef DEBUG_CLIMBINIT
+  expectedVRegs = new cl_uint[ALPSIZE_TO3*3];
 #endif
 }
 
@@ -752,12 +1025,13 @@ void InitializeArrays(const string cipher_string, int turnover_modes,
 #endif
   {
     //allow_turnover
-    ClimbKernel.setArg(14, cl_int(turnover_modes));
+    ClimbKernel.setArg(15, cl_int(turnover_modes));
+    ClimbInitKernel.setArg(4, cl_int(turnover_modes));
     //use unigrams
-    ClimbKernel.setArg(15, cl_int(score_kinds));
+    ClimbKernel.setArg(16, cl_int(score_kinds));
   }
 
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
   task.turnover_modes = turnover_modes;
   task.score_kinds = score_kinds;
 #endif
@@ -766,8 +1040,7 @@ void InitializeArrays(const string cipher_string, int turnover_modes,
   SetUpResultsMemory(count);
 }
 
-
-#ifdef DEBUG_CLIMB
+#if defined(DEBUG_CLIMB) || defined(DEBUG_CLIMBINIT)
 /*
  * ClimbKernelHost
  * START
@@ -786,12 +1059,15 @@ int ComputeScramblerIndex(int char_pos,
   int l_period = (m_notch[1] == NONE) ? ALPSIZE : HALF_ALPSIZE;
   l_period = --l_period * m_period;
   
+  int l_period_const1 = m_notch[1]==NONE ? 3303821 : 6882960;
+  int l_period_const2 = m_notch[1]==NONE ? 1650000 : 3441400;
+  
   //current wheel position relative to the last notch
   int r_after_notch = sett.r_mesg - r_notch[0];
   if (r_after_notch < 0) r_after_notch += ALPSIZE;
   if (r_notch[1] != NONE && r_after_notch >= (r_notch[1] - r_notch[0]))
     r_after_notch -= r_notch[1] - r_notch[0];
-
+  
   int m_after_notch = sett.m_mesg - m_notch[0];
   if (m_after_notch < 0) m_after_notch += ALPSIZE;
   if (m_notch[1] != NONE && m_after_notch >= (m_notch[1] - m_notch[0]))
@@ -809,13 +1085,17 @@ int ComputeScramblerIndex(int char_pos,
   if (m_after_notch == 0) l_phase += m_period;
   if (m_after_notch == 1 && r_after_notch == 1)
     l_phase -= l_period; //effectively sets l_phase to -1
+  int canInc_l_phase = 0;
+  int oldl_phase = l_phase;
   if (m_after_notch == 0 && r_after_notch == 0)
   {
     m_phase -= m_period;
     l_phase -= m_period;
+    oldl_phase = l_phase;
     if (char_pos == 0) l_phase++;
+    canInc_l_phase = 1;
   }
-
+  
   //save debug info
   //	r_after_notch_display = r_after_notch;
   //	m_after_notch_display = m_after_notch;
@@ -827,6 +1107,16 @@ int ComputeScramblerIndex(int char_pos,
 
   //double step of the middle wheel
   m_steps += l_steps;
+  
+#ifdef DEBUG_CLIMBINIT
+  ClimbInitEntry& expe = expectedClimbInitTempData[linear_idx];
+  expe.l_phase = oldl_phase;
+  expe.m_period = m_period;
+  expe.m_phase = m_phase;
+  expe.canInc_l_phase = canInc_l_phase;
+  expe.l_period_const1 = l_period_const1;
+  expe.l_period_const2 = l_period_const2;
+#endif
   
   //rotor core poistions to scrambling table index
   return mod26(sett.l_mesg - sett.l_ring + l_steps) * ALPSIZE_TO2 +
@@ -888,7 +1178,7 @@ int ComputeScramblerIndexV(int char_pos,
 
   //double step of the middle wheel
   m_steps += l_steps;
-  
+    
   //rotor core poistions to scrambling table index
   return mod26(sett.l_mesg - sett.l_ring + l_steps) * ALPSIZE_TO2 +
     mod26(sett.m_mesg - sett.m_ring + m_steps) * ALPSIZE +
@@ -909,7 +1199,6 @@ TurnoverLocation GetTurnoverLocation(const ScramblerStructure & stru,
   int8_t l_core_before = mod26(sett.l_mesg - sett.l_ring);
     int8_t l_core_first = ComputeScramblerIndex(0, stru, sett, wiring, linear_idx)
         / ALPSIZE_TO2;
-  
   // DEBUG
 #if DEBUG_DUMP
   if (debugPart==0) // ComputeScramblerIndex
@@ -925,10 +1214,17 @@ TurnoverLocation GetTurnoverLocation(const ScramblerStructure & stru,
     int8_t l_core_last = 
         ComputeScramblerIndex(ciphertext_length-1, stru, sett, wiring, linear_idx) 
         / ALPSIZE_TO2;
+  // DEBUG
+  //expectedVRegs[linear_idx] = l_core_last;
+  // DEBUG
   if (l_core_last != l_core_first) return toDuringMessage;
 
   return toAfterMessage;
 }
+
+#endif
+
+#ifdef DEBUG_CLIMB
 
 static int8_t shared_scrambling_table[20000];
 const int8_t * ScramblerToShared(const int8_t * global_scrambling_table, dim3 threadIdx,
@@ -1400,6 +1696,122 @@ static int best_score = 0;
 
 #endif
 
+#ifdef DEBUG_CLIMBINIT
+static void ClimbInitHost(size_t id, int gxnum, int taskCount)
+{
+  int gidx = id;
+  RotorSettings sett;
+  bool skip_this_key;
+  
+  //ring and rotor settings to be tried
+  sett.g_ring = 0;
+  sett.l_ring = 0;
+
+  //depending on the grid size, ring positions 
+  //either from grid index or fixed (from d_key)
+  sett.m_ring = d_key.sett.m_ring;
+  sett.r_ring = d_key.sett.r_ring;
+  
+  sett.g_mesg = d_key.sett.g_mesg;
+  sett.l_mesg = (gxnum > ALPSIZE_TO2) ? gidx / ALPSIZE_TO2 : d_key.sett.l_mesg;
+  sett.m_mesg = (gxnum > ALPSIZE) ? (gidx / ALPSIZE) % ALPSIZE : d_key.sett.m_mesg;
+  sett.r_mesg = (gxnum > 1) ? gidx % ALPSIZE : d_key.sett.r_mesg;
+  
+  ClimbInitEntry& expe = expectedClimbInitTempData[id];
+  expe.l_mesg = sett.l_mesg;
+  expe.m_mesg = sett.m_mesg;
+  expe.r_mesg = sett.r_mesg;
+  
+  skip_this_key = ((gxnum > 1) &&
+      (GetTurnoverLocation(d_key.stru, sett, taskCount, d_wiring, id)
+        & OpenCL_turnover_modes) == 0);
+  expe.skip_this_key = skip_this_key;
+}
+#endif
+
+void ClimbInit(bool single_key)
+{
+#ifdef DEBUG_CLIMBINIT
+  {
+    clpp::BufferMapping mapping(oclCmdQueue, vregDumpBuffer2, true, CL_MAP_WRITE, 0,
+            sizeof(cl_uint)*ALPSIZE_TO3*3);
+    ::memset(mapping.get(), 0, sizeof(cl_uint)*ALPSIZE_TO3*3);
+  }
+  {
+    clpp::BufferMapping mapping(oclCmdQueue, climbTempBuffer, true, CL_MAP_WRITE, 0,
+            sizeof(cl_uint)*ALPSIZE_TO3*12);
+    ::memset(mapping.get(), 0, sizeof(cl_uint)*ALPSIZE_TO3*12);
+  }
+  ::memset(expectedVRegs, 0, sizeof(cl_uint)*ALPSIZE_TO3*3);
+  ::memset(expectedClimbInitTempData, 0, sizeof(cl_uint)*12*ALPSIZE_TO3);
+#endif
+  int tasksNum = single_key ? 1 : ALPSIZE_TO3;
+  size_t workSize = (tasksNum + ClimbInitKernelWGSize-1) / ClimbInitKernelWGSize
+                * ClimbInitKernelWGSize;
+  ClimbInitKernel.setArg(2, cl_uint(tasksNum));
+  
+  oclCmdQueue.enqueueNDRangeKernel(ClimbInitKernel, workSize,
+                      ClimbInitKernelWGSize);
+#ifdef DEBUG_CLIMBINIT
+  for (size_t i = 0; i < tasksNum; i++)
+    ClimbInitHost(i, tasksNum, OpenCL_cipher_length);
+
+  bool error = false;
+#if 0
+  int vgprElemsNum = 1;
+  {
+    clpp::BufferMapping mapping(oclCmdQueue, vregDumpBuffer2, true, CL_MAP_READ, 0,
+            sizeof(cl_uint)*ALPSIZE_TO3*3);
+    const cl_uint* results = (const cl_uint*)mapping.get();
+    for (int i = 0; i < tasksNum; i++)
+        for (int k = 0; k < vgprElemsNum; k++)
+          if (expectedVRegs[i*vgprElemsNum + k] != results[i*vgprElemsNum + k])
+          {
+            std::cerr << "VRegArray[" << i << "][" << k << "] mismatch: " <<
+                  int(expectedVRegs[i*vgprElemsNum + k]) << "!=" <<
+                  int(results[i*vgprElemsNum + k]) << "\n";
+            error = true;
+          }
+  }
+#else
+  {
+    std::cerr << "Checking ClimbInit results" << std::endl;
+    clpp::BufferMapping mapping(oclCmdQueue, climbTempBuffer, true, CL_MAP_READ, 0,
+              sizeof(cl_uint)*ALPSIZE_TO3*12);
+    const ClimbInitEntry* resEntries = (const ClimbInitEntry*)mapping.get();
+    for (int i = 0; i < tasksNum; i++)
+    {
+      const ClimbInitEntry& expe = expectedClimbInitTempData[i];
+      const ClimbInitEntry& rese = resEntries[i];
+      
+      if (expe.skip_this_key != rese.skip_this_key)
+      {
+        std::cerr << "ClimbTempData[" << i << "].skip_this_key mismatch: " <<
+            expe.skip_this_key << "!=" << rese.skip_this_key << "\n";
+        error = true;
+      }
+      if (!expe.skip_this_key)
+      {
+        for (int j = 1; j < 10; j++)
+          if (expe.values[j] != rese.values[j])
+          {
+            std::cerr << "ClimbTempData[" << i << "][" << j << "] mismatch: " <<
+                expe.values[j] << "!=" << rese.values[j] << "\n";
+            error = true;
+          }
+      }
+    }
+  }
+#endif
+  if (error)
+  {
+    std::cerr << "Have errors!" << std::endl;
+    ::exit(1);
+  }
+  //
+  ::exit(0);
+#endif
+}
 
 Result Climb(int cipher_length, const Key & key, bool single_key)
 {
@@ -1452,7 +1864,7 @@ Result Climb(int cipher_length, const Key & key, bool single_key)
   {
     int shared_scrambler_size = ((cipher_length + (SCRAMBLER_STRIDE-1)) &
                     ~(SCRAMBLER_STRIDE-1)) * 28;
-    ClimbKernel.setArg(16, clpp::Local(shared_scrambler_size));
+    ClimbKernel.setArg(17, clpp::Local(shared_scrambler_size));
   }
 
   int groupSize = !useClrxAssembly ? block_size : CLRX_GroupSize;
@@ -1738,6 +2150,25 @@ void ComputeDimensions(int count, int & grid_size, int & block_size)
 Result GetBestResult(int count)
 {
   int grid_size, block_size;
+#ifdef DEBUG_BESTRESULT
+  Result expectedResult;
+  std::unique_ptr<Result[]> allResults(new Result[count]);
+  { //
+    clpp::BufferMapping mapping(oclCmdQueue, resultsBuffer, true, CL_MAP_READ,
+                    0, sizeof(Result)*count);
+    const Result* results = (const Result*)mapping.get();
+    int best_score = -1;
+    ::memcpy(allResults.get(), results, sizeof(Result)*count);
+    for (int i = 0; i < count; i++)
+      if (results[i].score > best_score)
+      {
+        //std::cout << "best result index: " << i << std::endl;
+        best_score = results[i].score;
+        expectedResult = results[i];
+      }
+  }
+#endif
+  
   ComputeDimensions(count, grid_size, block_size);
   
   if (d_tempSize < grid_size*sizeof(Result) || d_tempBuffer()==NULL)
@@ -1755,7 +2186,7 @@ Result GetBestResult(int count)
   
   bool swapped = true;
   int s = grid_size;
-  while (s > 1)
+  while (s > 40)
   {
     ComputeDimensions(s, grid_size, block_size);
     const clpp::Kernel& kernel = swapped ? FindBestResultKernel2 : FindBestResultKernel;
@@ -1764,10 +2195,48 @@ Result GetBestResult(int count)
     s = (s + (block_size * 2 - 1)) / (block_size * 2);
     swapped = !swapped;
   }
-  Result result;
+  Result tempResults[40];
   oclCmdQueue.readBuffer(swapped ? d_tempBuffer : resultsBuffer,
-                         0, sizeof(Result), &result);
-  return result;
+                         0, sizeof(Result)*s, tempResults);
+  int best_score = -1;
+  int best_index = 0;
+  for (int i = 0; i < s; i++)
+    if (tempResults[i].score > best_score)
+    {
+      best_score = tempResults[i].score;
+      best_index = i;
+    }
+#ifdef DEBUG_BESTRESULT
+  bool error = false;
+  Result result = tempResults[best_index];
+  // compare result
+  std::cout << "\nChecking FindBestResult\n";
+  if (expectedResult.score != result.score)
+  {
+    std::cerr << "Result score not match: " << expectedResult.score << "!=" <<
+            result.score << "\n";
+    error = true;
+  }
+  if (expectedResult.index != result.index)
+  {
+    std::cerr << "Result index not match: " << expectedResult.index << "!=" <<
+            result.index << "\n";
+    error = true;
+  }
+  for (int i = 0; i < ALPSIZE; i++)
+    if (expectedResult.plugs[i] != result.plugs[i])
+    {
+        std::cerr << "Result plugs[" << i << "] not match: " <<
+              int(expectedResult.plugs[i]) << "!=" << int(result.plugs[i]) << "\n";
+        error = true;
+    }
+  if (error)
+  {
+    std::cout << "\nhave errors\n";
+    exit(1);
+  }
+#endif
+  return tempResults[best_index];
 }
 
 
@@ -1826,6 +2295,7 @@ void CleanUpGPU()
   FindBestResultKernel = clpp::Kernel();
   FindBestResultKernel2 = clpp::Kernel();
   ClimbKernel = clpp::Kernel();
+  ClimbInitKernel = clpp::Kernel();
   GenerateScramblerKernel = clpp::Kernel();
   
   d_ciphertextBuffer = clpp::Buffer();
@@ -1848,9 +2318,17 @@ void CleanUpGPU()
   sregDumpBuffer = clpp::Buffer();
   #endif
 #endif
+#ifdef DEBUG_CLIMBINIT
+  vregDumpBuffer2 = clpp::Buffer();
+#endif
+  climbTempBuffer = clpp::Buffer();
   
   oclCmdQueue = clpp::CommandQueue();
   oclProgram = clpp::Program();
   oclClrxProgram = clpp::Program();
   oclContext = clpp::Context();
+  
+  unigrams.reset();
+  bigrams.reset();
+  trigrams_obj.reset();
 }
