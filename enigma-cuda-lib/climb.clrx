@@ -21,6 +21,8 @@ HALF_ALPSIZE = ALPSIZE>>1
 ALPSIZE_TO2 = ALPSIZE*ALPSIZE
 ALPSIZE_TO3 = ALPSIZE*ALPSIZE*ALPSIZE
 
+UNROLL_SIZE = 16
+
 .get_format BINFMT
 
 AMDCL2_OR_GALLIUM = BINFMT==3 || BINFMT==1
@@ -2834,7 +2836,6 @@ IcScore_skip2_\@:
                 for (int q = p + 1; q < ALPSIZE; q++) */
         s_mov_b32 p_s, 0
         s_mov_b32 q_s, 1
-    UNROLL_SIZE = 16
         s_movk_i32 loopi_s, (LOOP_ITERS_NUM / UNROLL_SIZE) - 1
 .p2align 5
 IcScoreMainLoop:
