@@ -397,15 +397,25 @@ static bool prepareAssemblyOfClimbKernel()
       { devType = getGPUDeviceTypeFromName(devNameTmp.c_str()); }
       catch(const GPUIdException& ex)
       {
-        const char* sptr = ::strchr(deviceName.c_str(), '(');
-        if (sptr == nullptr)
-            throw; // nothing found
-        devNamePtr = sptr+1;
-        // try again
-        devNameEnd = devNamePtr;
-        while (isAlnum(*devNameEnd)) devNameEnd++;
-        string devNameTmp(devNamePtr, devNameEnd);
-        devType = getGPUDeviceTypeFromName(devNameTmp.c_str());
+        const char* sptr = deviceName.c_str();
+        while(true)
+        {
+          sptr = ::strchr(sptr, '(');
+          if (sptr == nullptr)
+              throw; // nothing found
+          devNamePtr = sptr+1;
+          // try again
+          devNameEnd = devNamePtr;
+          while (isAlnum(*devNameEnd)) devNameEnd++;
+          string devNameTmp(devNamePtr, devNameEnd);
+          try
+          {
+            devType = getGPUDeviceTypeFromName(devNameTmp.c_str());
+            break;
+          }
+          catch(const GPUIdException& ex)
+          { sptr++; /* skip previous '(' */ }
+        }
       }
     }
     else // AMD-APP
