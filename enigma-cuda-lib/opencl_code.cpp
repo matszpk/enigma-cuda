@@ -361,6 +361,8 @@ void setUpConfig(int turnover_modes, int score_kinds, int cipher_length)
 }
 
 #ifdef HAVE_CLRX
+static bool galliumAndVega = false;
+
 static bool prepareAssemblyOfClimbKernel()
 {
   std::string platformName = oclDevice.getPlatform().getName();
@@ -493,6 +495,9 @@ static bool prepareAssemblyOfClimbKernel()
       catch(const ParseException& ex)
       { } // ignore error
     }
+    // do not compile program (not supported by libclc)
+    // get from clib.clrx (embedded)
+    galliumAndVega = (arch==GPUArchitecture::GCN1_4);
   }
   
   if (binaryFormat==BinaryFormat::AMD && defaultCL2ForDriver &&
@@ -729,6 +734,10 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 #endif
     wavefrontSize = getWorkGroupSizeMultiple();
   
+#ifdef HAVE_CLRX
+  if (!galliumAndVega)
+  {
+#endif
   oclProgram = clpp::Program(oclContext, (const char*)___enigma_cuda_lib_opencl_program_cl,
                     ___enigma_cuda_lib_opencl_program_cl_len);
   {
@@ -754,7 +763,11 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
       throw;
     }
   }
-  GenerateScramblerKernel = clpp::Kernel(oclProgram, "GenerateScramblerKernel");
+#ifdef HAVE_CLRX
+  } // !galliumAndVega
+#endif
+  
+  
 #ifdef HAVE_CLRX
   if (!useClrxAssembly) // if not compiled in Assembler code
 #endif
@@ -762,8 +775,22 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     ClimbInitKernel = clpp::Kernel(oclProgram, "ClimbInitKernel");
     ClimbKernel = clpp::Kernel(oclProgram, "ClimbKernel");
   }
+#ifdef HAVE_CLRX
+  if (!galliumAndVega)
+  {
+#endif
+  GenerateScramblerKernel = clpp::Kernel(oclProgram, "GenerateScramblerKernel");
   FindBestResultKernel = clpp::Kernel(oclProgram, "FindBestResultKernel");
   FindBestResultKernel2 = clpp::Kernel(oclProgram, "FindBestResultKernel");
+#ifdef HAVE_CLRX
+  }
+  else
+  {
+    GenerateScramblerKernel = clpp::Kernel(oclClrxProgram, "GenerateScramblerKernel");
+    FindBestResultKernel = clpp::Kernel(oclClrxProgram, "FindBestResultKernel");
+    FindBestResultKernel2 = clpp::Kernel(oclClrxProgram, "FindBestResultKernel");
+  }
+#endif
   
   GenerateScramblerKernelWGSize = GenerateScramblerKernel.getWorkGroupSize(oclDevice);
   GenerateScramblerKernelWGSize = std::min(GenerateScramblerKernelWGSize, size_t(64));
