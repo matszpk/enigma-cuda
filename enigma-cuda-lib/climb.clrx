@@ -3728,7 +3728,7 @@ skipWriteResults:
 .ifeq GCN14-ARCH
 
 .iflt LLVMVER-40000
-.error "Unsupported LLVM 4.0"
+.error "Unsupported LLVM version <4.0"
 .endif
 
 .kernel FindBestResultKernel
