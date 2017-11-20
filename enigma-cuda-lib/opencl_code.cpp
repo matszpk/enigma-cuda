@@ -2202,6 +2202,8 @@ Result GetBestResult(int count)
   int grid_size, block_size;
 #ifdef DEBUG_BESTRESULT
   Result expectedResult;
+  int second_best_index = -1;
+  int third_best_index = -1;
   std::unique_ptr<Result[]> allResults(new Result[count]);
   { //
     clpp::BufferMapping mapping(oclCmdQueue, resultsBuffer, true, CL_MAP_READ,
@@ -2215,6 +2217,12 @@ Result GetBestResult(int count)
         //std::cout << "best result index: " << i << std::endl;
         best_score = results[i].score;
         expectedResult = results[i];
+        third_best_index = second_best_index = -1;
+      }
+      else if (results[i].score == best_score)
+      {
+          third_best_index = second_best_index;
+          second_best_index = results[i].index;
       }
   }
 #endif
@@ -2267,7 +2275,8 @@ Result GetBestResult(int count)
             result.score << "\n";
     error = true;
   }
-  if (expectedResult.index != result.index)
+  if (result.index < 0 || (expectedResult.index != result.index &&
+      second_best_index != result.index && third_best_index != result.index))
   {
     std::cerr << "Result index not match: " << expectedResult.index << "!=" <<
             result.index << "\n";
