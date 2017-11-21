@@ -3760,7 +3760,7 @@ skipWriteResults:
 # code from compilation of opencl_program.cl for Ellesmere (RX 480 device)
 # Compile options: -DWITHOUT_CLIMB_KERNEL=1
 # using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
-# and LLVM/clang 4.0.1 compiler.
+# and LLVM/clang 4.0.1 compiler and libclc-0.2.0_pre20170118.
 # disassembled by clrxdisasm 0.1.5r1
 # only with substitutions different mnemonics for VEGA
 
@@ -3921,7 +3921,7 @@ skipWriteResults:
 # code from compilation of opencl_program.cl for Ellesmere (RX 480 device)
 # Compile options: -DWITHOUT_CLIMB_KERNEL=1
 # using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
-# and LLVM/clang 4.0.1 compiler.
+# and LLVM/clang 4.0.1 compiler and libclc-0.2.0_pre20170118.
 # disassembled by clrxdisasm 0.1.5r1
 # only with substitutions different mnemonics for VEGA
 
