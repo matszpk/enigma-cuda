@@ -3757,7 +3757,7 @@ skipWriteResults:
 ::FindBestResultKernel:
 .skip 256
 
-# code from compilation of opencl_program.cl
+# code from compilation of opencl_program.cl for Ellesmere (RX 480 device)
 # Compile options: -DWITHOUT_CLIMB_KERNEL=1
 # using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
 # and LLVM/clang 4.0.1 compiler.
@@ -3918,7 +3918,7 @@ skipWriteResults:
 ::GenerateScramblerKernel:
 .skip 256
 
-# code from compilation of opencl_program.cl
+# code from compilation of opencl_program.cl for Ellesmere (RX 480 device)
 # Compile options: -DWITHOUT_CLIMB_KERNEL=1
 # using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
 # and LLVM/clang 4.0.1 compiler.
