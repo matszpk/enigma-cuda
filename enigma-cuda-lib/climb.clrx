@@ -3758,6 +3758,7 @@ skipWriteResults:
 .skip 256
 
 # code from compilation of opencl_program.cl
+# Compile options: -DWITHOUT_CLIMB_KERNEL=1
 # using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
 # and LLVM/clang 4.0.1 compiler.
 # disassembled by clrxdisasm 0.1.5r1
@@ -3918,6 +3919,7 @@ skipWriteResults:
 .skip 256
 
 # code from compilation of opencl_program.cl
+# Compile options: -DWITHOUT_CLIMB_KERNEL=1
 # using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
 # and LLVM/clang 4.0.1 compiler.
 # disassembled by clrxdisasm 0.1.5r1
