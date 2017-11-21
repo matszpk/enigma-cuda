@@ -3757,7 +3757,11 @@ skipWriteResults:
 ::FindBestResultKernel:
 .skip 256
 
-# code from compilation of opencl_code.cl
+# code from compilation of opencl_program.cl
+# using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
+# and LLVM/clang 4.0.1 compiler.
+# disassembled by clrxdisasm 0.1.5r1
+# only with substitutions different mnemonics for VEGA
 
 /*000000000800: c0020002 00000004*/ s_load_dword    s0, s[4:5], 0x4
 /*000000000808: c0020083 00000010*/ s_load_dword    s2, s[6:7], 0x10
@@ -3913,7 +3917,11 @@ skipWriteResults:
 ::GenerateScramblerKernel:
 .skip 256
 
-# code from compilation of opencl_code.cl
+# code from compilation of opencl_program.cl
+# using Mesa3D 17.0.6/GalliumCompute Clover OpenCL implementation
+# and LLVM/clang 4.0.1 compiler.
+# disassembled by clrxdisasm 0.1.5r1
+# only with substitutions different mnemonics for VEGA
 
 /*000000000100: c0020082 00000010*/ s_load_dword    s2, s[4:5], 0x10
 /*000000000108: c0020002 00000014*/ s_load_dword    s0, s[4:5], 0x14
