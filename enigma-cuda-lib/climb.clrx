@@ -481,7 +481,7 @@ WAVEFRONT_SIZE = (TASK_SIZE+63) & ~63
         .else
             s_load_dwordx2 debugOut_res[0:1], argsPtr, xdebugOut_arg*SMUL
         .endif
-        s_movk_i32 debugOut_res[2], 0xffff
+        s_movk_i32 debugOut_res[2], -1      # 0xffffffff
         s_mov_b32 debugOut_res[3], 0x8027fac
     .elseiffmt amd
         .ifeq \type
@@ -579,7 +579,7 @@ WAVEFRONT_SIZE = (TASK_SIZE+63) & ~63
         .else
             s_load_dwordx2 debugOut_res[0:1], argsPtr, xdebugOut_arg*SMUL
         .endif
-        s_movk_i32 debugOut_res[2], 0xffff
+        s_movk_i32 debugOut_res[2], -1          # 0xffffffff
         s_mov_b32 debugOut_res[3], 0x8027fac
     .elseiffmt amd
         .ifne \type
@@ -1086,12 +1086,12 @@ USE_LOCAL_IN_TRYSWAP = 1
             s_load_dword d_key[0], argsPtr, SMUL*d_key_arg
             s_mov_b32 d_key[1], 0
             s_mov_b64 bufres[0:1], 0
-            s_movk_i32 bufres[2], 0xffff
+            s_movk_i32 bufres[2], -1            # 0xffffffff
             s_mov_b32 bufres[3], 0x8027fac
         .else
             SRegAlloc4A d_key_res
             s_load_dwordx2 d_key_res[0:1], argsPtr, SMUL*d_key_arg
-            s_movk_i32 d_key_res[2], 0xffff
+            s_movk_i32 d_key_res[2], -1         # 0xffffffff
             s_mov_b32 d_key_res[3], 0x8027fac
         .endif
     .elseiffmt amd
@@ -1543,7 +1543,7 @@ storeResults:
         .else
             SRegAlloc4A tempClimbData_res
             s_load_dwordx2 tempClimbData_res[0:1], argsPtr, tempClimbData_arg*SMUL
-            s_movk_i32 tempClimbData_res[2], 0xffff
+            s_movk_i32 tempClimbData_res[2], -1     # 0xffffffff
             s_mov_b32 tempClimbData_res[3], 0x8027fac
         .endif
     .elseiffmt amd
@@ -1974,12 +1974,12 @@ storeResultsToSkip:
             SRegAlloc1 taskResults
             s_load_dword taskResults, argsPtr, SMUL*taskResults_arg
             s_mov_b64 bufres[0:1], 0
-            s_movk_i32 bufres[2], 0xffff
+            s_movk_i32 bufres[2], -1        # 0xffffffff
             s_mov_b32 bufres[3], 0x8027fac
         .else # 64-bit
             SRegAlloc4A taskResults_res
             s_load_dwordx2 taskResults_res[0:1], argsPtr, SMUL*taskResults_arg
-            s_movk_i32 taskResults_res[2], 0xffff
+            s_movk_i32 taskResults_res[2], -1       # 0xfffffff
             s_mov_b32 taskResults_res[3], 0x8027fac
         .endif
     .elseiffmt amd
@@ -2055,11 +2055,11 @@ ClimbNoEnd:
             s_load_dword d_plugs, argsPtr, SMUL*d_plugs_arg
             s_load_dword d_unigrams, argsPtr, SMUL*d_unigrams_arg
             s_mov_b64 bufres[0:1], 0
-            s_movk_i32 bufres[2], 0xffff
+            s_movk_i32 bufres[2], -1        # 0xffffffff
             s_mov_b32 bufres[3], 0x8027fac
         .else
         .ifeq ARCH-GCN10
-            s_movk_i32 d_plugs[2], 0xffff
+            s_movk_i32 d_plugs[2], -1       # 0xffffffff
             s_mov_b32 d_plugs[3], 0x8027fac
             s_mov_b64 d_unigrams[2:3], d_plugs[2:3]
         .endif
@@ -2356,7 +2356,7 @@ skipFeedToLds:
             SRegAlloc4A scramblerData_res
             SRegAlloc2A d_ciphertext
             s_load_dwordx2 scramblerData_res[0:1], argsPtr, scramblerData_arg*SMUL
-            s_movk_i32 scramblerData_res[2], 0xffff
+            s_movk_i32 scramblerData_res[2], -1     # 0xffffffff
             s_mov_b32 scramblerData_res[3], 0x8027fac
             SRegAlloc4A d_ciphertext_res
             s_load_dwordx2 d_ciphertext_res[0:1], argsPtr, d_ciphertext_arg*SMUL
@@ -2478,7 +2478,7 @@ skipFeedToLds:
             buffer_load_sbyte d_orderVal, d_orderVal, bufres, d_order offen
         .else
         .ifeq ARCH-GCN10
-            s_movk_i32 d_order[2], 0xffff
+            s_movk_i32 d_order[2], -1       # 0xffffffff
             s_mov_b32 d_order[3], 0x8027fac
             buffer_load_sbyte d_orderVal, d_orderVal, d_order, 0 offen
         .else
@@ -3079,7 +3079,7 @@ CUR_SCORE_KIND = skBigram
         .else
             SRegAlloc4A d_bigrams_res
             s_load_dwordx2 d_bigrams_res[0:1], argsPtr, SMUL*d_bigrams_arg
-            s_movk_i32 d_bigrams_res[2], 0xffff
+            s_movk_i32 d_bigrams_res[2], -1     # 0xffffffff
             s_mov_b32 d_bigrams_res[3], 0x8027fac
         .endif
     .elseiffmt amd
@@ -3316,7 +3316,7 @@ CUR_SCORE_KIND = skTrigram
         .else
             SRegAlloc4A trigramsData_res
             s_load_dwordx2 trigramsData_res[0:1], argsPtr, SMUL*trigramsData_arg
-            s_movk_i32 trigramsData_res[2], 0xffff
+            s_movk_i32 trigramsData_res[2], -1 # 0xffffffff
             s_mov_b32 trigramsData_res[3], 0x8027fac
         .endif
     .elseiffmt amd
@@ -3642,7 +3642,7 @@ tryswapstoptri: s_endpgm
         .else # 64-bit
             SRegAlloc4A taskResults_res
             s_load_dwordx2 taskResults_res[0:1], argsPtr, SMUL*taskResults_arg
-            s_movk_i32 taskResults_res[2], 0xffff
+            s_movk_i32 taskResults_res[2], -1       # 0xffffffff
             s_mov_b32 taskResults_res[3], 0x8027fac
         .endif
     .elseiffmt amd
