@@ -25,4 +25,7 @@ optimization just change WITH_CLRX variable in makefile.
 The scripts for 'GNU make' and 'NMake' are in 'linux' and 'windows' directory.
 I did not add new executable to MS Visual Studio project. Just use 'make' or 'nmake' to
 build enigma-opencl executable. Also, enigma-cuda executable for Linux can be built
-using 'make' tool.
+using 'make' tool. The building process requires additional tool: XXD. The XXD can be found
+in VIM editor [http://www.vim.org](http://www.vim.org/)
+(available for many platforms including Windows).
+
