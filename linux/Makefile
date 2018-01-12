@@ -2,8 +2,8 @@
 
 WITH_CLRX = 1
 
-CC = gcc-5
-CXX = g++-5
+CC = gcc
+CXX = g++
 NVCC = nvcc
 AR = ar
 RANLIB = ranlib

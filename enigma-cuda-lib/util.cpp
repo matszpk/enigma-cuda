@@ -176,7 +176,13 @@ string TimeString()
 #endif
 
   std::ostringstream os;
+#ifdef _WIN32
   os << std::put_time(&tt, "%Y-%m-%d %H:%M:%S");
+#else
+  char buf[128];
+  std::strftime(buf, sizeof buf, "%Y-%m-%d %H:%M:%S", &tt);
+  os << buf;
+#endif
   return os.str();  
 }
 
