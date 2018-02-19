@@ -19,7 +19,7 @@ NVLDFLAGS = -O2 -Wno-deprecated-gpu-targets -std=c++11
 #NVCCFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
 #NVLDFLAGS = -g -Wno-deprecated-gpu-targets -std=c++11
 NVLD = nvcc
-LD = g++-5
+LD = g++
 INCDIRS = -I../enigma-cuda-lib
 CUDAINCDIRS = -I/usr/local/cuda-8.0/include
 CLPPINCDIRS = -I../clpp
