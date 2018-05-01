@@ -594,10 +594,13 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     return false;
   }
   int best_device = 0;
-  int platformIndex = -1;
+  std::vector<clpp::Platform> devPlatforms;
+  std::vector<clpp::Device> devices;
+  
   for (size_t i = 0;  i < platforms.size(); i++)
   {
-    std::string vendor = platforms[i].getVendor();
+    const clpp::Platform& platform = platforms[i];
+    std::string vendor = platform.getVendor();
     vendor = trimSpaces(vendor);
 #ifdef PLATFORM_VENDOR_2
     if (vendor==PLATFORM_VENDOR || vendor==PLATFORM_VENDOR_2)
@@ -605,11 +608,12 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     if (vendor==PLATFORM_VENDOR)
 #endif
     {
-      platformIndex = i;
-      break;
+      const std::vector<clpp::Device> tempDevs = platform.getGPUDevices();
+      devPlatforms.insert(devPlatforms.end(), tempDevs.size(), platform);
+      devices.insert(devices.end(), tempDevs.begin(), tempDevs.end());
     }
   }
-  if (platformIndex==-1)
+  if (devices.empty())
   {
 #ifdef ACCEPT_ONLY_PREFERRED_PLATFORM
     std::cerr << "Preferred OpenCL platform vendor (" <<
@@ -629,12 +633,12 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
 #endif
                 ") not found.\r\n"
         "Use first OpenCL platform\r\n";
-    platformIndex = 0;
+    const clpp::Platform& platform = platforms[0];
+    devices = platform.getGPUDevices();
+    devPlatforms.assign(devices.size(), platform);
 #endif
   }
-  const clpp::Platform& platform = platforms[platformIndex];
-  const std::vector<clpp::Device> devices = platform.getGPUDevices();
-
+  
   if (devices.empty())
   {
     std::cerr << "OpenCL device not found. Terminating..." << std::endl;
@@ -665,6 +669,7 @@ bool SelectGpuDevice(int req_major, int req_minor, int settings_device, bool sil
     std::cerr << "Choosen device out of range" << std::endl;
     return false;
   }
+  const clpp::Platform& platform = devPlatforms[best_device];
   const clpp::Device& device = devices[best_device];
   if (!silent)
   {
